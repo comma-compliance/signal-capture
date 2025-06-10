@@ -453,7 +453,7 @@ func (a *Api) processMessageByType(
 	case "verification_message_received":
 		if authCompleted != nil && *authCompleted != "" {
 			a.sendContactsToWebhook(account, roomId)
-			a.setMessageReciever(account, roomId)
+			a.setMessageReciever(account, roomId, conn, identifierJSON)
 			*authCompleted = "stopAuthPolling" // Stop polling after sending contacts
 		} else {
 			log.Println("⚠️ authCompleted is nil or empty; skipping sendContactsToWebhook")
@@ -461,11 +461,47 @@ func (a *Api) processMessageByType(
 
 	case "request_qr_code":
 		a.sendQRCode(conn, identifierJSON)
+	case "disconnect":
+		a.sendDisconnectMessage(conn, identifierJSON)
+		a.DisconnectSignal(account)
 
 	default:
 		log.Printf("ℹ️ Unhandled message type: %s", msgType)
 	}
 }
+
+func (a *Api) DisconnectSignal(number string) {
+	deleteAccount := false
+	deleteLocalData := false
+	err := a.signalClient.UnregisterNumber(number, deleteAccount, deleteLocalData)
+	if err != nil {
+		log.Println("error", err.Error())
+		return
+	}
+}
+
+func (a *Api) sendDisconnectMessage(conn *websocket.Conn, identifierJSON []byte) {
+	dataPayload := map[string]string{
+		"action":  "receive",
+		"type":    "disconnected",
+		"message": "Signal client has been stopped.",
+	}
+
+	dataBytes, _ := json.Marshal(dataPayload)
+
+	response := map[string]interface{}{
+		"command":    "message",
+		"identifier": string(identifierJSON),
+		"data":       string(dataBytes),
+	}
+
+	if err := conn.WriteJSON(response); err != nil {
+		log.Printf("❌ Failed to send disconnect message: %v", err)
+	} else {
+		log.Println("🛑 Sent disconnect message")
+	}
+}
+
 
 // sendContactsToWebhook sends the contacts associated with a Signal account
 // to a webhook in batches, attaching the jobID and service info.
@@ -547,8 +583,16 @@ func (a *Api) sendContactsToWebhook(account, jobID string) {
 	log.Println("✅ All contact batches sent successfully.")
 }
 
-func (a *Api) setMessageReciever(primaryNumber string, roomId string) {
+func (a *Api) setMessageReciever(primaryNumber string, roomId string, conn *websocket.Conn, identifierJSON []byte) {
 	number := primaryNumber
+	var authCompleted = "MessageStarted"
+
+	go func() {
+		for {
+			a.handleMessage(conn, identifierJSON, &authCompleted, roomId, number)
+		}
+	}()
+
 	for {
 		// Poll every 2 seconds
 		time.Sleep(2 * time.Second)
