@@ -430,25 +430,26 @@ func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCom
 	}
 
 	// Extract and assert "type" field as string
-	msgType, ok := msgData["type"].(string)
+	_, ok = msgData["type"].(string)
 	if !ok {
 		log.Printf("⚠️ 'type' key missing or not a string: %#v", msgData["type"])
 		return
 	}
 
 	// Delegate the action based on the message type
-	a.processMessageByType(msgType, conn, identifierJSON, authCompleted, roomId, account)
+	a.processMessageByType(msgData, conn, identifierJSON, authCompleted, roomId, account)
 }
 
 // processMessageByType handles logic for different message types.
 func (a *Api) processMessageByType(
-	msgType string,
+	msgData map[string]interface{},
 	conn *websocket.Conn,
 	identifierJSON []byte,
 	authCompleted *string,
 	roomId string,
 	account string,
 ) {
+	var msgType = msgData["type"]
 	switch msgType {
 	case "verification_message_received":
 		if authCompleted != nil && *authCompleted != "" {
@@ -464,10 +465,38 @@ func (a *Api) processMessageByType(
 	case "disconnect":
 		a.sendDisconnectMessage(conn, identifierJSON)
 		a.DisconnectSignal(account)
+	case "outbound_message":
+		// Assuming msgData is a map[string]interface{}
+		phoneNumber, ok := msgData["phone_number"].(string)
+		if !ok {
+			log.Fatal("phone_number is not a string")
+		}
+
+		message, ok := msgData["message"].(string)
+		if !ok {
+			log.Fatal("message is not a string")
+		}
+
+		// Now call SendMessage with the correct types
+		a.SendMessage(account, phoneNumber, message)
 
 	default:
 		log.Printf("ℹ️ Unhandled message type: %s", msgType)
 	}
+}
+
+func (a *Api) SendMessage(from string, to string, message string) (*SendMessageResponse, error) {
+	recipients := []string{to}
+	attachments := []string{} // or nil if none
+
+	timestamp, err := a.signalClient.SendV1(from, message, recipients, attachments, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SendMessageResponse{
+		Timestamp: strconv.FormatInt(timestamp.Timestamp, 10),
+	}, nil
 }
 
 func (a *Api) DisconnectSignal(number string) {
