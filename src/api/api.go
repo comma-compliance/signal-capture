@@ -259,6 +259,19 @@ func NewApi(signalClient *client.SignalClient) *Api {
 	}
 }
 
+func (a *Api) create_connection(roomId string) (*websocket.Conn, []byte) {
+	for {
+		log.Println("⏳ Waiting for WebSocket connection...")
+		conn, identifierJSON, err := a.connectToWebSocket(roomId)
+		if err == nil {
+			log.Println("✅ Connected to WebSocket.")
+			return conn, identifierJSON
+		}
+		log.Printf("❌ Connection failed: %v", err)
+		time.Sleep(5 * time.Second)
+	}
+}
+
 // StartBroadcasting initiates a Signal client WebSocket session,
 // subscribes to the channel, handles QR code authentication,
 // and continuously processes messages or resends QR codes if needed.
@@ -266,8 +279,8 @@ func (a *Api) StartBroadcasting(roomId string) {
 	emptyJsonFile()
 	log.Println("🔄 Starting Signal broadcast session...")
 
-	// Establish WebSocket connection and get identifier JSON for subscription
-	conn, identifierJSON := a.connectToWebSocket(roomId)
+	conn, identifierJSON := a.create_connection(roomId)
+
 
 	// Subscribe to the SignalChannel using the WebSocket connection
 	if err := a.subscribeToChannel(conn, identifierJSON); err != nil {
@@ -279,16 +292,30 @@ func (a *Api) StartBroadcasting(roomId string) {
 	var (
 		account       string
 		authCompleted string    // Tracks whether authentication is complete
+		connectionBreak bool
 	)
 
 	// Loop continuously to handle authentication and message flow
 	go func() {
 		for {
-			a.handleMessage(conn, identifierJSON, &authCompleted, roomId, account)
+			if connectionBreak {
+				conn, identifierJSON = a.create_connection(roomId)
+
+				// Subscribe to the SignalChannel using the WebSocket connection
+				if err := a.subscribeToChannel(conn, identifierJSON); err != nil {
+					log.Fatalf("❌ Subscription failed: %v", err)
+					continue
+				}
+				connectionBreak = false
+			}
+			a.handleMessage(conn, identifierJSON, &authCompleted, roomId, account, &connectionBreak)
 		}
 	}()
 	go func() {
 		for {
+			if connectionBreak {
+				continue
+			}
 			account = a.tryAuthenticate(conn, identifierJSON)
 			if account != "" {
 				a.setMessageReciever(account, roomId, conn, identifierJSON)
@@ -298,6 +325,9 @@ func (a *Api) StartBroadcasting(roomId string) {
 	}()
 	go func() {
 		for {
+			if connectionBreak {
+				continue
+			}
 			if authCompleted == "stopAuthPolling" {
 				break
 			}
@@ -309,39 +339,36 @@ func (a *Api) StartBroadcasting(roomId string) {
 
 // connectToWebSocket establishes a WebSocket connection using the configured URL
 // and prepares the identifier JSON used to subscribe to a specific SignalChannel room.
-func (a *Api) connectToWebSocket(roomID string) (*websocket.Conn, []byte) {
+func (a *Api) connectToWebSocket(roomID string) (*websocket.Conn, []byte, error) {
 	app_config := config.LoadConfig()
-	// Retrieve the WebSocket server URL from environment variables
 	websocketURL := app_config.WebSocketURL
 	if websocketURL == "" {
-		log.Fatal("❌ WEBSOCKET_URL not set")
+		return nil, nil, fmt.Errorf("❌ WEBSOCKET_URL not set")
 	}
 
-	// Parse the WebSocket URL to ensure it's valid
 	u, err := url.Parse(websocketURL)
 	if err != nil {
-		log.Fatalf("❌ Invalid WebSocket URL: %v", err)
+		return nil, nil, fmt.Errorf("❌ Invalid WebSocket URL: %v", err)
 	}
 
-	// Establish the WebSocket connection using the default dialer
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatalf("❌ WebSocket connection failed: %v", err)
+		return nil, nil, fmt.Errorf("❌ WebSocket connection failed: %v", err)
 	}
 
 	log.Println("🔌 WebSocket connection established")
 
-	// Create the identifier payload to subscribe to the SignalChannel for this room
 	identifier := map[string]interface{}{
-		"channel": "SignalChannel", // The Action Cable channel name
-		"room_id": roomID,          // The specific room to join
+		"channel": "SignalChannel",
+		"room_id": roomID,
 	}
 
-	// Encode the identifier into JSON format to be used for subscription
-	identifierJSON, _ := json.Marshal(identifier)
+	identifierJSON, err := json.Marshal(identifier)
+	if err != nil {
+		return nil, nil, fmt.Errorf("❌ Failed to encode identifier JSON: %v", err)
+	}
 
-	// Return the WebSocket connection and the JSON-encoded identifier
-	return conn, identifierJSON
+	return conn, identifierJSON, nil
 }
 
 // subscribeToChannel sends a subscription message to the WebSocket server
@@ -408,11 +435,12 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte) strin
 }
 
 // handleMessage processes incoming WebSocket messages and delegates based on their "type" field.
-func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCompleted *string, roomId string, account string) {
+func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCompleted *string, roomId string, account string, connectionBreak *bool) {
 	// Read the next message from the WebSocket connection
 	_, message, err := conn.ReadMessage()
 	if err != nil {
 		log.Printf("❌ WebSocket read error: %v", err)
+		*connectionBreak = true
 		return
 	}
 
@@ -663,36 +691,43 @@ func (a *Api) sendMessagesToWebhook(rawJson string, number string, roomId string
 
 			log.Println("Extracted message map:", msgMap)
 
-			// Corrected "envelop" to "envelope"
 			envelope, ok := msgMap["envelope"].(map[string]interface{})
 			if !ok {
 				log.Println("Key 'envelope' missing or not a map")
 				continue
 			}
 
-			// Check for syncMessage (can contain sentMessage)
+			// Handle syncMessage
 			syncMessage, syncOk := envelope["syncMessage"].(map[string]interface{})
 			if syncOk {
 				sentMessage, ok := syncMessage["sentMessage"].(map[string]interface{})
 				if !ok {
-					log.Println("'syncMessage' missing or not a map")
+					log.Println("'syncMessage' present but 'sentMessage' missing or not a map")
 					continue
 				}
 				if sentMessage["reaction"] != nil {
-					log.Println("Ignoring reaction message")
+					log.Println("Ignoring reaction message in syncMessage")
 					continue
 				}
 			}
 
+			// Handle dataMessage
 			dataMessage, dataOk := envelope["dataMessage"].(map[string]interface{})
 			_, editMessage := envelope["editMessage"].(map[string]interface{})
 			if !dataOk && !syncOk && !editMessage {
-				log.Println("'dataMessage' missing or not a map")
+				log.Println("No usable message type found (dataMessage/syncMessage/editMessage)")
 				continue
 			}
-			if dataMessage["reaction"] != nil {
-				log.Println("Ignoring reaction message")
-				continue
+
+			if dataOk {
+				if dataMessage["reaction"] != nil {
+					log.Println("Ignoring reaction message in dataMessage")
+					continue
+				}
+				if dataMessage["message"] == nil {
+					log.Println("Skipping message because 'dataMessage[\"message\"]' is nil")
+					continue
+				}
 			}
 
 			params := map[string]interface{}{
