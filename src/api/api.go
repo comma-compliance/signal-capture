@@ -663,36 +663,43 @@ func (a *Api) sendMessagesToWebhook(rawJson string, number string, roomId string
 
 			log.Println("Extracted message map:", msgMap)
 
-			// Corrected "envelop" to "envelope"
 			envelope, ok := msgMap["envelope"].(map[string]interface{})
 			if !ok {
 				log.Println("Key 'envelope' missing or not a map")
 				continue
 			}
 
-			// Check for syncMessage (can contain sentMessage)
+			// Handle syncMessage
 			syncMessage, syncOk := envelope["syncMessage"].(map[string]interface{})
 			if syncOk {
 				sentMessage, ok := syncMessage["sentMessage"].(map[string]interface{})
 				if !ok {
-					log.Println("'syncMessage' missing or not a map")
+					log.Println("'syncMessage' present but 'sentMessage' missing or not a map")
 					continue
 				}
 				if sentMessage["reaction"] != nil {
-					log.Println("Ignoring reaction message")
+					log.Println("Ignoring reaction message in syncMessage")
 					continue
 				}
 			}
 
+			// Handle dataMessage
 			dataMessage, dataOk := envelope["dataMessage"].(map[string]interface{})
 			_, editMessage := envelope["editMessage"].(map[string]interface{})
 			if !dataOk && !syncOk && !editMessage {
-				log.Println("'dataMessage' missing or not a map")
+				log.Println("No usable message type found (dataMessage/syncMessage/editMessage)")
 				continue
 			}
-			if dataMessage["reaction"] != nil {
-				log.Println("Ignoring reaction message")
-				continue
+
+			if dataOk {
+				if dataMessage["reaction"] != nil {
+					log.Println("Ignoring reaction message in dataMessage")
+					continue
+				}
+				if dataMessage["message"] == nil {
+					log.Println("Skipping message because 'dataMessage[\"message\"]' is nil")
+					continue
+				}
 			}
 
 			params := map[string]interface{}{
