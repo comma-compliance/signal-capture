@@ -316,7 +316,7 @@ func (a *Api) StartBroadcasting(roomId string) {
 			if connectionBreak {
 				continue
 			}
-			account = a.tryAuthenticate(conn, identifierJSON)
+			account = a.tryAuthenticate(conn, identifierJSON, "")
 			if account != "" {
 				a.setMessageReciever(account, roomId, conn, identifierJSON)
 				break
@@ -329,6 +329,85 @@ func (a *Api) StartBroadcasting(roomId string) {
 				continue
 			}
 			if authCompleted == "stopAuthPolling" {
+				break
+			}
+			a.sendQRCode(conn, identifierJSON)
+			time.Sleep(45 * time.Second)
+		}
+	}()
+}
+
+func (a *Api) reAuthSignal(conn *websocket.Conn, identifierJSON []byte, number string, roomId string) {
+	authPayload := map[string]interface{}{
+		"action":        "speak",
+		"reauthenticate": true,
+	}
+
+	authBytes, _ := json.Marshal(authPayload)
+
+	authMsg := map[string]interface{}{
+		"command":    "message",
+		"identifier": string(identifierJSON),
+		"data":       string(authBytes),
+	}
+
+	// Send the message over the WebSocket
+	if err := conn.WriteJSON(authMsg); err != nil {
+		log.Printf("⚠️ Failed to send auth message: %v", err)
+	} else {
+		log.Println("Send reauthentication message to rails app")
+	}
+	emptyJsonFile()
+	var account = ""
+	var stopReAuth = false
+	go func() {
+		for {
+			account = a.tryAuthenticate(conn, identifierJSON, number)
+			if account != "" {
+				if account == number {
+					stopReAuth = true
+					a.setMessageReciever(account, roomId, conn, identifierJSON)
+					break
+				} else {
+					emptyJsonFile()
+					
+					userInfo := map[string]string{
+						"phone":             account,
+						"sender_identifier": account,
+					}
+
+					// Construct the data payload
+					dataPayload := map[string]interface{}{
+						"action":        "speak",
+						"wrong_account_scanned": true,
+						"user_info":     userInfo,
+					}
+
+					// Marshal the inner data to JSON
+					dataBytes, _ := json.Marshal(dataPayload)
+
+					// Build the final message structure
+					msg := map[string]interface{}{
+						"command":    "message",
+						"identifier": string(identifierJSON), // from your ActionCable subscription
+						"data":       string(dataBytes),
+					}
+
+					// Send the message
+					if err := conn.WriteJSON(msg); err != nil {
+						log.Printf("⚠️ Failed to send message: %v", err)
+					} else {
+						log.Println("✅ Sent message to Rails app:", msg)
+					}
+					account = ""
+				}
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			if stopReAuth {
 				break
 			}
 			a.sendQRCode(conn, identifierJSON)
@@ -388,7 +467,7 @@ func (a *Api) subscribeToChannel(conn *websocket.Conn, identifierJSON []byte) er
 // tryAuthenticate checks for registered Signal accounts and, if found,
 // sends an authentication message over the WebSocket to notify the front end.
 // Returns the authenticated account string (or empty if none found).
-func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte) string {
+func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte, number string) string {
 	// Fetch list of Signal accounts from the client
 	accounts, err := a.signalClient.GetAccounts()
 	if err != nil || len(accounts) == 0 {
@@ -398,6 +477,10 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte) strin
 
 	// Take the first available account (assumes one active account for now)
 	account := accounts[0]
+
+	if number != "" && account != number {
+		return account
+	}
 
 	// Create user info to send along with the authentication message
 	userInfo := map[string]string{
@@ -656,6 +739,10 @@ func (a *Api) setMessageReciever(primaryNumber string, roomId string, conn *webs
 			)
 			if err != nil {
 				log.Printf("Receive error: %v", err)
+				if strings.Contains(err.Error(), "Authorization failed") {
+					a.reAuthSignal(conn, identifierJSON, number, roomId)
+					break
+				}
 				continue
 			}
 
