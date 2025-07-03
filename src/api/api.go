@@ -848,9 +848,9 @@ func (a *Api) sendMessageToWebhook(sentMessage interface{}) {
 func (a *Api) sendQRCode(conn *websocket.Conn, identifierJSON []byte) {
 	// Generate QR code PNG data using the Signal client.
 	// The identifier "signal-api" is used and the timeout is 10 seconds.
-	baseName := "signal-api"
+	baseName := "Comma Compliance"
 	timestamp := time.Now().Format("20060102150405") // YYYYMMDDHHMMSS
-	deviceName := fmt.Sprintf("%s-%s", baseName, timestamp)
+	deviceName := fmt.Sprintf("%s %s", baseName, timestamp)
 	pngData, err := a.signalClient.GetQrCodeLink(deviceName, 10)
 	if err != nil {
 		log.Printf("⚠️ Could not generate QR code: %v", err)
