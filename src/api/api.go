@@ -469,8 +469,13 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte, numbe
 		"sender_identifier": account,
 	}
 
+	payload := map[string]interface{}{
+		"user_info": userInfo,
+		"signal_authed": true,
+	}
+
 	// Send the encrypted message over the WebSocket
-	err = a.sendEncryptedMessage(conn, identifierJSON, userInfo)
+	err = a.sendEncryptedMessage(conn, identifierJSON, payload)
 	if err != nil {
 		log.Printf("⚠️ Failed to send encrypted auth message: %v", err)
 	} else {
@@ -624,6 +629,7 @@ func (a *Api) sendDisconnectMessage(conn *websocket.Conn, identifierJSON []byte)
 // to a webhook in batches, attaching the jobID and service info.
 func (a *Api) sendContactsToWebhook(account, jobID string) {
 	app_config := config.LoadConfig()
+
 	// Number of contacts to send per batch
 	batchSize, err := strconv.Atoi(app_config.BatchSize)
 	if err != nil {
@@ -631,16 +637,15 @@ func (a *Api) sendContactsToWebhook(account, jobID string) {
 		return
 	}
 
-	const delayBetweenBatches = 2 * time.Second // Delay between sending each batch
+	const delayBetweenBatches = 2 * time.Second
 
-	// Fetch contacts from the Signal client for the given account
+	// Fetch contacts from Signal client
 	contacts, err := a.signalClient.ListContacts(account)
 	if err != nil {
 		log.Printf("⚠️ Failed to fetch contacts: %v", err)
 		return
 	}
 
-	// Retrieve webhook URL from environment variable
 	webhookURL := app_config.WebhookURL
 	if webhookURL == "" {
 		log.Println("❌ WEBHOOK_URL environment variable not set")
@@ -649,55 +654,61 @@ func (a *Api) sendContactsToWebhook(account, jobID string) {
 
 	total := len(contacts)
 	log.Printf("📤 Sending %d contacts in batches of %d...", total, batchSize)
+
 	go func() {
-		// Iterate through contacts in batches
 		for i := 0; i < total; i += batchSize {
-			// Determine the end index for the current batch
 			end := i + batchSize
 			if end > total {
 				end = total
 			}
 			batch := contacts[i:end]
 
-			// Prepare the JSON payload with the batch and metadata
+			// Original unencrypted payload
 			payload := map[string]interface{}{
-				"data":          batch,     // Current batch of contacts
-				"bulk_contacts": true,      // Indicates this is a batch send
-				"job_id":        jobID,     // Identifier for tracking job
-				"service":       "contact", // Type of service
+				"data":          batch,
+				"bulk_contacts": true,
+				"job_id":        jobID,
+				"service":       "contact",
 			}
 
-			// Marshal payload to JSON
-			data, err := json.Marshal(payload)
+			// Step 2: Encrypt the payload
+			encryptedDetail, err := utils.EncryptMessage(payload, app_config.PrivateKey, app_config.PublicKey, app_config.AppPubKey)
 			if err != nil {
-				log.Printf("❌ Failed to marshal payload for batch %d: %v", i/batchSize+1, err)
+				log.Printf("🔐 Encryption failed for batch %d: %v", i/batchSize+1, err)
 				continue
 			}
 
-			// Send POST request to the webhook with the payload
-			resp, err := http.Post(
-				webhookURL,
-				"application/json",
-				bytes.NewBuffer(data),
-			)
+			// Step 3: Construct encrypted payload
+			encryptedPayload := map[string]string{
+				"ciphertext":      encryptedDetail.Ciphertext,
+				"nonce":           encryptedDetail.Nonce,
+				"signalPublicKey":  encryptedDetail.SignalPublicKey,
+			}
 
+			finalPayload, err := json.Marshal(encryptedPayload)
+			if err != nil {
+				log.Printf("❌ Failed to marshal encrypted payload for batch %d: %v", i/batchSize+1, err)
+				continue
+			}
+
+			// Step 4: POST encrypted data to webhook
+			resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(finalPayload))
 			if err != nil {
 				log.Printf("❌ Error sending batch %d: %v", i/batchSize+1, err)
 			} else {
 				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
-				log.Printf("✅ Sent batch %d/%d, response: %s",
+				log.Printf("✅ Sent encrypted batch %d/%d, response: %s",
 					i/batchSize+1,
-					(total+batchSize-1)/batchSize, // Total number of batches
+					(total+batchSize-1)/batchSize,
 					string(body),
 				)
 			}
 
-			// Pause between sending batches to avoid overwhelming the server
 			time.Sleep(delayBetweenBatches)
 		}
 
-		log.Println("✅ All contact batches sent successfully.")
+		log.Println("✅ All contact batches sent securely.")
 	}()
 }
 
@@ -804,22 +815,36 @@ func (a *Api) sendMessageToWebhook(sentMessage interface{}) {
 	app_config := config.LoadConfig()
 	webhookURL := app_config.WebhookURL
 
-	// Marshal the map into JSON bytes
-	jsonPayload, err := json.Marshal(sentMessage)
+	// Step 2: Encrypt the JSON string using your encryption util
+	encryptedDetail, err := utils.EncryptMessage(sentMessage, app_config.PrivateKey, app_config.PublicKey, app_config.AppPubKey)
 	if err != nil {
-		log.Printf("Failed to marshal sentMessage to JSON: %v\n", err)
+		log.Printf("🔐 Encryption failed: %v", err)
 		return
 	}
 
-	// Send the JSON to the webhook
-	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(jsonPayload))
+	// Step 3: Build the encrypted payload
+	encryptedPayload := map[string]string{
+		"ciphertext":      encryptedDetail.Ciphertext,
+		"nonce":           encryptedDetail.Nonce,
+		"signalPublicKey":  encryptedDetail.SignalPublicKey,
+	}
+
+	// Step 4: Marshal the encrypted payload into JSON
+	finalPayload, err := json.Marshal(encryptedPayload)
 	if err != nil {
-		log.Printf("Failed to send message to webhook: %v\n", err)
+		log.Printf("❌ Failed to marshal encrypted payload: %v", err)
+		return
+	}
+
+	// Step 5: Send the encrypted payload to the webhook
+	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(finalPayload))
+	if err != nil {
+		log.Printf("❌ Failed to send message to webhook: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 
-	log.Println("✅ Message successfully sent to webhook")
+	log.Println("✅ Encrypted message successfully sent to webhook")
 }
 
 // sendQRCode generates a Signal QR code and sends it to the client via WebSocket.
