@@ -864,30 +864,42 @@ func (a *Api) sendQRCode(conn *websocket.Conn, identifierJSON []byte) {
 		return
 	}
 
-	// Encode the PNG binary data to a base64 string so it can be sent over WebSocket.
 	qrBase64 := base64.StdEncoding.EncodeToString(pngData)
 
-	// Create the inner payload with the base64 QR code.
-	dataPayload := map[string]string{
-		"action":  "speak",  // Required by ActionCable to dispatch a message
-		"qr_code": qrBase64, // Base64-encoded PNG data for the QR code
+	// 🔐 Prepare plaintext payload
+	payload := map[string]string{
+		"qr_code": qrBase64,
 	}
 
-	// Convert the payload to JSON string format.
-	dataBytes, _ := json.Marshal(dataPayload)
+	// 🔐 Encrypt the payload using our app keys
+	app_config := config.LoadConfig()
+	encryptedDetail, err := utils.EncryptMessage(payload, app_config.PrivateKey, app_config.PublicKey, app_config.AppPubKey)
+	if err != nil {
+		log.Printf("🔐 Encryption failed: %v", err)
+		return
+	}
 
-	// Construct the full message to send via WebSocket.
+	encryptedPayload := map[string]string{
+		"action":         "speak",
+		"ciphertext":     encryptedDetail.Ciphertext,
+		"nonce":          encryptedDetail.Nonce,
+		"signalPublicKey":    encryptedDetail.SignalPublicKey, // include sender pubkey for decryption
+	}
+
+	// 🔒 Final message payload
+	encryptedMessage, _ := json.Marshal(encryptedPayload)
+
+	// Wrap in ActionCable format
 	response := map[string]interface{}{
-		"command":    "message",              // Tells ActionCable to send a message
-		"identifier": string(identifierJSON), // Target channel and room ID
-		"data":       string(dataBytes),      // Actual data being sent
+		"command":    "message",
+		"identifier": string(identifierJSON),
+		"data":       string(encryptedMessage),
 	}
 
-	// Send the message over WebSocket
 	if err := conn.WriteJSON(response); err != nil {
 		log.Printf("❌ Failed to send QR code: %v", err)
 	} else {
-		log.Println("🧾 Sent QR code")
+		log.Println("🧾 Sent encrypted QR code ✅")
 	}
 }
 
