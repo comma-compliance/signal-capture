@@ -339,20 +339,12 @@ func (a *Api) StartBroadcasting(roomId string) {
 
 func (a *Api) reAuthSignal(conn *websocket.Conn, identifierJSON []byte, number string, roomId string) {
 	authPayload := map[string]interface{}{
-		"action":        "speak",
 		"reauthenticate": true,
 	}
 
-	authBytes, _ := json.Marshal(authPayload)
-
-	authMsg := map[string]interface{}{
-		"command":    "message",
-		"identifier": string(identifierJSON),
-		"data":       string(authBytes),
-	}
-
 	// Send the message over the WebSocket
-	if err := conn.WriteJSON(authMsg); err != nil {
+	err := a.sendEncryptedMessage(conn, identifierJSON, authPayload)
+	if err != nil {
 		log.Printf("⚠️ Failed to send auth message: %v", err)
 	} else {
 		log.Println("Send reauthentication message to rails app")
@@ -378,26 +370,16 @@ func (a *Api) reAuthSignal(conn *websocket.Conn, identifierJSON []byte, number s
 
 					// Construct the data payload
 					dataPayload := map[string]interface{}{
-						"action":        "speak",
 						"wrong_account_scanned": true,
 						"user_info":     userInfo,
 					}
 
-					// Marshal the inner data to JSON
-					dataBytes, _ := json.Marshal(dataPayload)
-
-					// Build the final message structure
-					msg := map[string]interface{}{
-						"command":    "message",
-						"identifier": string(identifierJSON), // from your ActionCable subscription
-						"data":       string(dataBytes),
-					}
-
 					// Send the message
-					if err := conn.WriteJSON(msg); err != nil {
+					err := a.sendEncryptedMessage(conn, identifierJSON, dataPayload)
+					if err != nil {
 						log.Printf("⚠️ Failed to send message: %v", err)
 					} else {
-						log.Println("✅ Sent message to Rails app:", msg)
+						log.Println("✅ Sent message to Rails app")
 					}
 					account = ""
 				}
@@ -481,44 +463,15 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte, numbe
 	}
 
 	// 🔐 Prepare plaintext user info payload
-	userInfo := map[string]string{
+	userInfo := map[string]interface{}{
 		"name":              "Unknown", // You can later populate this dynamically
 		"phone":             account,
 		"sender_identifier": account,
 	}
 
-	// 🔐 Encrypt the payload
-	appConfig := config.LoadConfig()
-	encryptedDetail, err := utils.EncryptMessage(userInfo, appConfig.PrivateKey, appConfig.PublicKey, appConfig.AppPubKey)
-	if err != nil {
-		log.Printf("🔐 Encryption failed: %v", err)
-		return ""
-	}
-
-	// 🔐 Construct encrypted payload
-	encryptedPayload := map[string]string{
-		"action":         "speak",
-		"ciphertext":     encryptedDetail.Ciphertext,
-		"nonce":          encryptedDetail.Nonce,
-		"signalPublicKey": encryptedDetail.SignalPublicKey,
-	}
-
-	// Marshal encrypted message
-	encryptedMessage, err := json.Marshal(encryptedPayload)
-	if err != nil {
-		log.Printf("❌ Failed to marshal encrypted auth message: %v", err)
-		return ""
-	}
-
-	// Wrap in ActionCable format
-	authMsg := map[string]interface{}{
-		"command":    "message",
-		"identifier": string(identifierJSON),
-		"data":       string(encryptedMessage),
-	}
-
 	// Send the encrypted message over the WebSocket
-	if err := conn.WriteJSON(authMsg); err != nil {
+	err = a.sendEncryptedMessage(conn, identifierJSON, userInfo)
+	if err != nil {
 		log.Printf("⚠️ Failed to send encrypted auth message: %v", err)
 	} else {
 		log.Println("✅ Encrypted Signal auth completed")
@@ -654,27 +607,18 @@ func (a *Api) DisconnectSignal(number string) {
 }
 
 func (a *Api) sendDisconnectMessage(conn *websocket.Conn, identifierJSON []byte) {
-	dataPayload := map[string]string{
-		"action":  "receive",
+	dataPayload := map[string]interface{}{
 		"type":    "disconnected",
 		"message": "Signal client has been stopped.",
 	}
 
-	dataBytes, _ := json.Marshal(dataPayload)
-
-	response := map[string]interface{}{
-		"command":    "message",
-		"identifier": string(identifierJSON),
-		"data":       string(dataBytes),
-	}
-
-	if err := conn.WriteJSON(response); err != nil {
+	err := a.sendEncryptedMessage(conn, identifierJSON, dataPayload)
+	if err != nil {
 		log.Printf("❌ Failed to send disconnect message: %v", err)
 	} else {
 		log.Println("🛑 Sent disconnect message")
 	}
 }
-
 
 // sendContactsToWebhook sends the contacts associated with a Signal account
 // to a webhook in batches, attaching the jobID and service info.
@@ -894,16 +838,24 @@ func (a *Api) sendQRCode(conn *websocket.Conn, identifierJSON []byte) {
 	qrBase64 := base64.StdEncoding.EncodeToString(pngData)
 
 	// 🔐 Prepare plaintext payload
-	payload := map[string]string{
+	payload := map[string]interface{}{
 		"qr_code": qrBase64,
 	}
 
-	// 🔐 Encrypt the payload using our app keys
+	err = a.sendEncryptedMessage(conn, identifierJSON, payload)
+	if err != nil {
+		log.Printf("❌ Failed to send QR code message: %v", err)
+	} else {
+		log.Println("✅ Sent QR code to client")
+	}
+}
+
+func (a *Api) sendEncryptedMessage(conn *websocket.Conn, identifierJSON []byte, payload map[string]interface{}) error {
 	app_config := config.LoadConfig()
 	encryptedDetail, err := utils.EncryptMessage(payload, app_config.PrivateKey, app_config.PublicKey, app_config.AppPubKey)
 	if err != nil {
 		log.Printf("🔐 Encryption failed: %v", err)
-		return
+		return err
 	}
 
 	encryptedPayload := map[string]string{
@@ -924,10 +876,9 @@ func (a *Api) sendQRCode(conn *websocket.Conn, identifierJSON []byte) {
 	}
 
 	if err := conn.WriteJSON(response); err != nil {
-		log.Printf("❌ Failed to send QR code: %v", err)
-	} else {
-		log.Println("🧾 Sent encrypted QR code ✅")
+		return err
 	}
+	return nil
 }
 
 // @Summary Lists general information about the API
