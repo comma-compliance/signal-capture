@@ -519,18 +519,25 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte, numbe
 
 // handleMessage processes incoming WebSocket messages and delegates based on their "type" field.
 func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCompleted *string, roomId string, account string, connectionBreak *bool) {
+	app_config := config.LoadConfig()
+
 	// Read the next message from the WebSocket connection
-	_, message, err := conn.ReadMessage()
+	_, directMessage, err := conn.ReadMessage()
 	if err != nil {
 		log.Printf("❌ WebSocket read error: %v", err)
 		*connectionBreak = true
 		return
 	}
 
-	// Decode the raw JSON message into a map for further processing
-	var incoming map[string]interface{}
-	if err := json.Unmarshal(message, &incoming); err != nil {
-		log.Printf("⚠️ Invalid message format: %v", err)
+	var encryptedPayload utils.EncryptedPayload
+	if err := json.Unmarshal(directMessage, &encryptedPayload); err != nil {
+		log.Printf("Failed to unmarshal encrypted payload: %v", err)
+		return
+	}
+	// Decrypt the message
+	incoming, err := utils.DecryptMessage(encryptedPayload, app_config.PrivateKey, app_config.PublicKey)
+	if err != nil {
+		log.Printf("Failed to decrypt message: %v", err)
 		return
 	}
 
@@ -573,20 +580,23 @@ func (a *Api) processMessageByType(
 		a.sendDisconnectMessage(conn, identifierJSON)
 		a.DisconnectSignal(account)
 	case "outbound_message":
-		// Assuming msgData is a map[string]interface{}
-		phoneNumber, ok := msgData["phone_number"].(string)
+		info, ok := msgData["info"].(map[string]interface{})
 		if !ok {
-			log.Fatal("phone_number is not a string")
+			log.Fatal("info is missing or not a valid object")
 		}
 
-		message, ok := msgData["message"].(string)
+		phoneNumber, ok := info["phone_number"].(string)
 		if !ok {
-			log.Fatal("message is not a string")
+			log.Fatal("phone_number is missing or not a string")
+		}
+
+		message, ok := info["message"].(string)
+		if !ok {
+			log.Fatal("message is missing or not a string")
 		}
 
 		// Now call SendMessage with the correct types
 		a.SendMessage(account, phoneNumber, message)
-
 	default:
 		log.Printf("ℹ️ Unhandled message type: %s", msgType)
 	}
@@ -776,8 +786,6 @@ func (a *Api) sendMessagesToWebhook(rawJson string, number string, roomId string
 				continue
 			}
 
-			log.Println("Extracted message map:", msgMap)
-
 			// Corrected "envelop" to "envelope"
 			envelope, ok := msgMap["envelope"].(map[string]interface{})
 			if !ok {
@@ -816,7 +824,6 @@ func (a *Api) sendMessagesToWebhook(rawJson string, number string, roomId string
 				"value":   msgMap,
 			}
 
-			log.Println("Sending message to webhook:", params)
 			a.sendMessageToWebhook(params)
 		}
 	}()
@@ -1167,7 +1174,7 @@ func (a *Api) handleSignalReceive(ws *websocket.Conn, number string, stop chan s
 						var response Response
 						err = json.Unmarshal([]byte(data), &response)
 						if err != nil {
-							log.Error("Couldn't parse message ", data, ":", err.Error())
+							log.Error("Couldn't parse message: ", err.Error())
 							continue
 						}
 
