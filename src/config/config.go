@@ -24,8 +24,8 @@ func LoadConfig() *Config {
 		WebhookURL:   getEnv("WEBHOOK_URL", "http://100.91.74.113:3000/webhooks/incoming/signal_webhooks"),
 		BatchSize:    getEnv("BATCH_SIZE", "50"),
 		JobId:        getJobID(),
-		PrivateKey:   getEnv("PRIVATE_KEY", "XLteChPpSK+9y7fU6WNTOX0tSLyyTrekhygfJTLN3/E="),
-		PublicKey:    getEnv("PUBLIC_KEY", "Dx841BPrnzzgZQos4wAe4KHayyv0vZwSUgzaBEk4axE="),
+		PrivateKey:   getEnv("SIGNAL_PRIVATE_KEY", "XLteChPpSK+9y7fU6WNTOX0tSLyyTrekhygfJTLN3/E="),
+		PublicKey:    getEnv("SIGNAL_PUBLIC_KEY", "Dx841BPrnzzgZQos4wAe4KHayyv0vZwSUgzaBEk4axE="),
 		AppPubKey:    getEnv("RAILS_PUBLIC_KEY", "9sjyElWmHnZkYrHz6/dlKViDBR7kvuT9db0sgSBPs2Q="),
 	}
 }

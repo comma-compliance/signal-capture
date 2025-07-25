@@ -475,87 +475,114 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte, numbe
 		return ""
 	}
 
-	// Take the first available account (assumes one active account for now)
 	account := accounts[0]
-
 	if number != "" && account != number {
 		return account
 	}
 
-	// Create user info to send along with the authentication message
+	// 🔐 Prepare plaintext user info payload
 	userInfo := map[string]string{
-		"name":              "Unknown", // Placeholder name (can be dynamic)
-		"phone":             account,   // Phone number tied to the account
-		"sender_identifier": account,   // Also used to identify sender
+		"name":              "Unknown", // You can later populate this dynamically
+		"phone":             account,
+		"sender_identifier": account,
 	}
 
-	// Construct payload to notify frontend that Signal is authenticated
-	authPayload := map[string]interface{}{
-		"action":        "speak",  // Action Cable expects an action field
-		"signal_authed": true,     // Custom field to indicate success
-		"user_info":     userInfo, // Additional metadata for frontend
+	// 🔐 Encrypt the payload
+	appConfig := config.LoadConfig()
+	encryptedDetail, err := utils.EncryptMessage(userInfo, appConfig.PrivateKey, appConfig.PublicKey, appConfig.AppPubKey)
+	if err != nil {
+		log.Printf("🔐 Encryption failed: %v", err)
+		return ""
 	}
 
-	// Marshal the payload into JSON
-	authBytes, _ := json.Marshal(authPayload)
+	// 🔐 Construct encrypted payload
+	encryptedPayload := map[string]string{
+		"action":         "speak",
+		"ciphertext":     encryptedDetail.Ciphertext,
+		"nonce":          encryptedDetail.Nonce,
+		"signalPublicKey": encryptedDetail.SignalPublicKey,
+	}
 
-	// Wrap the payload into a WebSocket "message" command for Action Cable
+	// Marshal encrypted message
+	encryptedMessage, err := json.Marshal(encryptedPayload)
+	if err != nil {
+		log.Printf("❌ Failed to marshal encrypted auth message: %v", err)
+		return ""
+	}
+
+	// Wrap in ActionCable format
 	authMsg := map[string]interface{}{
-		"command":    "message",              // Action Cable message command
-		"identifier": string(identifierJSON), // Channel identifier
-		"data":       string(authBytes),      // JSON-encoded payload as string
+		"command":    "message",
+		"identifier": string(identifierJSON),
+		"data":       string(encryptedMessage),
 	}
 
-	// Send the message over the WebSocket
+	// Send the encrypted message over the WebSocket
 	if err := conn.WriteJSON(authMsg); err != nil {
-		log.Printf("⚠️ Failed to send auth message: %v", err)
+		log.Printf("⚠️ Failed to send encrypted auth message: %v", err)
 	} else {
-		log.Println("✅ Signal auth completed")
+		log.Println("✅ Encrypted Signal auth completed")
 	}
 
-	// Return the authenticated account for reference
 	return account
 }
 
-// handleMessage processes incoming WebSocket messages and delegates based on their "type" field.
 func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCompleted *string, roomId string, account string, connectionBreak *bool) {
 	app_config := config.LoadConfig()
 
 	// Read the next message from the WebSocket connection
-	_, directMessage, err := conn.ReadMessage()
+	_, message, err := conn.ReadMessage()
 	if err != nil {
 		log.Printf("❌ WebSocket read error: %v", err)
 		*connectionBreak = true
 		return
 	}
 
-	var encryptedPayload utils.EncryptedPayload
-	if err := json.Unmarshal(directMessage, &encryptedPayload); err != nil {
-		log.Printf("Failed to unmarshal encrypted payload: %v", err)
-		return
-	}
-	// Decrypt the message
-	incoming, err := utils.DecryptMessage(encryptedPayload, app_config.PrivateKey, app_config.PublicKey)
-	if err != nil {
-		log.Printf("Failed to decrypt message: %v", err)
+	// Decode the raw JSON message into a map
+	var incoming map[string]interface{}
+	if err := json.Unmarshal(message, &incoming); err != nil {
+		log.Printf("⚠️ Invalid message format: %v", err)
 		return
 	}
 
-	// Extract and assert "message" field as a map
+	// Extract the "message" field
 	msgData, ok := incoming["message"].(map[string]interface{})
 	if !ok {
 		log.Println("⚠️ 'message' key missing or not a valid object")
 		return
 	}
 
-	// Extract and assert "type" field as string
+	// Check if ciphertext/nonce/app_public_key are present → decrypt
+	ciphertextStr, ok1 := msgData["ciphertext"].(string)
+	nonceStr, ok2 := msgData["nonce"].(string)
+	appPubKeyStr, ok3 := msgData["app_public_key"].(string)
+
+	if ok1 && ok2 && ok3 {
+		log.Println("🔐 Encrypted message detected, attempting decryption...")
+
+		encryptedPayload := utils.EncryptedPayload{
+			Ciphertext:      ciphertextStr,
+			Nonce:           nonceStr,
+			SignalPublicKey: appPubKeyStr,
+		}
+
+		decryptedMessage, err := utils.DecryptMessage(encryptedPayload, app_config.PrivateKey, app_config.AppPubKey)
+		if err != nil {
+			log.Printf("❌ Decryption failed: %v", err)
+			return
+		}
+
+		msgData = decryptedMessage
+	}
+
+	// Process only if "type" exists
 	_, ok = msgData["type"].(string)
 	if !ok {
 		log.Printf("⚠️ 'type' key missing or not a string: %#v", msgData["type"])
 		return
 	}
 
-	// Delegate the action based on the message type
+	// Delegate based on type
 	a.processMessageByType(msgData, conn, identifierJSON, authCompleted, roomId, account)
 }
 
