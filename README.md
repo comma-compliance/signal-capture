@@ -44,8 +44,14 @@ We encourage independent audits and feedback to ensure the tool aligns with the 
 
 ### Our Commitment
 
-We believe people should be able to manage their own data **without giving up their privacy**. Our goal is to make useful, ethical tools for organizations that need to follow rules — without betraying the trust and values that Signal stands for.  
+We believe people should be able to manage their own data **without giving up their privacy**. Our goal is to make useful, ethical tools for organizations that need to follow rules without betraying the trust and values that Signal stands for.  
 We believe users should have agency over their data without compromising privacy. Our goal is to provide transparent, ethical tools that empower organizations to meet legitimate compliance requirements while still respecting the privacy values that Signal represents.
+
+# Signal Connector
+
+> **Secure, enterprise grade Signal client built for scalable messaging infrastructure**
+
+A containerized Signal client powered by signal-cli, designed for enterprise backends with secure message streaming, webhook integration, and per-user deployment capabilities.
 
 ## Key Features
 
@@ -53,14 +59,12 @@ We believe users should have agency over their data without compromising privacy
 - Real time encrypted messages streamig
 - Scalable batch processing
 
-and [many more](https://bbernhard.github.io/signal-cli-rest-api/)
-
 ---
 
 ## Quick Start
 
 
-1. Start a container
+Start a container
 
 ```bash
 $ docker compose up --build
@@ -77,7 +81,7 @@ SIGNAL_PUBLIC_KEY=your-signal-public-key
 RAILS_PUBLIC_KEY=your-app-public-key
 
 # Webhook Delivery
-WEBHOOK_URL=http://your-app/whatsapp_webhooks/
+WEBHOOK_URL=http://your-app/signal_webhooks/
 
 # Batch Processing
 BATCH_SIZE=50
@@ -92,12 +96,12 @@ The Swagger API documentation can be found [here](https://bbernhard.github.io/si
 ## Architecture Diagram
 
 ```
-                                    ┌─────────────────────────────────────────────┐
-                                    │               CI/CD Pipeline                │
-                                    │          GitHub Actions                     │
-                                    └──────────────────┬──────────────────────────┘
-                                                       │ Auto Deploy
-                                                       ▼
+                                          ┌─────────────────────────────────────────────┐
+                                          │               CI/CD Pipeline                │
+                                          │               GitHub Actions                │
+                                          └───────────────────┬─────────────────────────┘
+                                                              │ Auto Deploy
+                                                              ▼
                                          ┌─────────────────────────────────────────────┐
                                          │             Docker Container (Go)           │
                                          │  ┌─────────────────────────────────────┐    │
@@ -109,29 +113,29 @@ The Swagger API documentation can be found [here](https://bbernhard.github.io/si
 │   Mobile App    │     Device Link      │  │  Signal Protocol + Double Ratchet   │    │
 └─────────────────┘                      │  │  XChaCha20 + Ed25519 + Curve25519   │    │
          ▲                               │  └─────────────────────────────────────┘    │
-         │                               └─────────────────┬───────────────────────────┘
-         │ Messages                                        │
-         ▼                                 ┌─────────────┼─────────────┐
-                                           │             │             │
-                                           ▼             ▼             ▼
-                               ┌──────────────────┐  ┌──────────────────┐
-                               │  WebSocket       │  │    Webhook       │
-                               │  Real-time       │  │   HTTP POST      │
-                               │  Streaming       │  │   Delivery       │
-                               └─────────┬────────┘  └─────────┬────────┘
-                                         │                     │
-                                         └─────────┬───────────┘
-                                                   │
-                                                   ▼
-                                         ┌─────────────────────┐
-                                         │   Your App          │
-                                         │   Backend           │
-                                         │                     │
-                                         │ • Message Processing│
-                                         │ • Business Logic    │
-                                         │ • User Management   │
-                                         │ • Contact Sync      │
-                                         └─────────────────────┘
+         │                               └──────────────────┬──────────────────────────┘
+         │ Messages                                         │
+            ▼                                 ┌─────────────┼─────────────┐
+                                              │             │             │
+                                              ▼             ▼             ▼
+                                  ┌──────────────────┐  ┌──────────────────┐
+                                  │  WebSocket       │  │    Webhook       │
+                                  │  Real-time       │  │   HTTP POST      │
+                                  │  Streaming       │  │   Delivery       │
+                                  └─────────┬────────┘  └─────────┬────────┘
+                                            │                     │
+                                            └─────────┬───────────┘
+                                                      │
+                                                      ▼
+                                            ┌─────────────────────┐
+                                            │   Your App          │
+                                            │   Backend           │
+                                            │                     │
+                                            │ • Message Processing│
+                                            │ • Business Logic    │
+                                            │ • User Management   │
+                                            │ • Contact Sync      │
+                                            └─────────────────────┘
 
 ```
 The connector operates as a secure bridge between Signal CLI and your enterprise infrastructure, ensuring message delivery through multiple channels with full encryption support.
@@ -152,8 +156,8 @@ The connector operates as a secure bridge between Signal CLI and your enterprise
 ## Deployment
 
 ### CI/CD Pipeline
-Automated builds are triggered on changes to `whatsapp-client/` directory:
-- **Workflow**: `.github/workflows/ci-whatsapp-client.yml`
+Automated builds are triggered on changes to `signal-client/` directory:
+- **Workflow**: `.github/workflows/ci-signal-client.yml`
 - **Registry**: GitHub Container Registry (GHCR)
 
 
@@ -172,7 +176,7 @@ We take security seriously. If you discover a security vulnerability, please:
 3. **Include** detailed steps to reproduce
 4. **Wait** for our response before public disclosure
 
-**Bug Bounty Program:** Coming soon — report vulnerabilities responsibly and earn rewards. Minimum bounty: $25 for valid submissions.
+**Bug Bounty Program:** Coming soon report vulnerabilities responsibly and earn rewards. Minimum bounty: $25 for valid submissions.
 
 ---
 
