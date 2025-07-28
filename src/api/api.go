@@ -690,7 +690,6 @@ func (a *Api) sendContactsToWebhook(account, jobID string) {
 			if err != nil {
 				log.Printf("Error sending batch %d: %v", i/batchSize+1, err)
 			} else {
-				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
 			}
 
