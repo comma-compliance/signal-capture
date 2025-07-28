@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"time"
 )
@@ -11,9 +12,6 @@ type Config struct {
 	WebhookURL   string
 	BatchSize    string
 	JobId        string
-	PrivateKey   string
-	PublicKey	 string
-	AppPubKey    string
 }
 
 // LoadConfig initializes configuration with env variables or default values
@@ -23,9 +21,6 @@ func LoadConfig() *Config {
 		WebhookURL:   getEnv("WEBHOOK_URL", "http://100.91.74.113:3000/webhooks/incoming/signal_webhooks"),
 		BatchSize:    getEnv("BATCH_SIZE", "50"),
 		JobId:        getJobID(),
-		PrivateKey:   getEnv("SIGNAL_PRIVATE_KEY", ""),
-		PublicKey:    getEnv("SIGNAL_PUBLIC_KEY", ""),
-		AppPubKey:    getEnv("APP_PUBLIC_KEY", ""),
 	}
 }
 
@@ -33,6 +28,7 @@ func LoadConfig() *Config {
 func getEnv(key, defaultVal string) string {
 	val := os.Getenv(key)
 	if val == "" {
+		log.Printf("⚠️ %s not set. Using default: %s", key, defaultVal)
 		return defaultVal
 	}
 	return val
