@@ -34,7 +34,6 @@ func LoadConfig() *Config {
 func getEnv(key, defaultVal string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Printf("⚠️ %s not set. Using default: %s", key)
 		return defaultVal
 	}
 	return val

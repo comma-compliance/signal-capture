@@ -261,13 +261,12 @@ func NewApi(signalClient *client.SignalClient) *Api {
 
 func (a *Api) create_connection(roomId string) (*websocket.Conn, []byte) {
 	for {
-		log.Println("⏳ Waiting for WebSocket connection...")
 		conn, identifierJSON, err := a.connectToWebSocket(roomId)
 		if err == nil {
-			log.Println("✅ Connected to WebSocket.")
+			log.Println("Connected to WebSocket.")
 			return conn, identifierJSON
 		}
-		log.Printf("❌ Connection failed: %v", err)
+		log.Printf("Connection failed: %v", err)
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -276,17 +275,16 @@ func (a *Api) create_connection(roomId string) (*websocket.Conn, []byte) {
 // subscribes to the channel, handles QR code authentication,
 // and continuously processes messages or resends QR codes if needed.
 func (a *Api) StartBroadcasting(roomId string) {
-	log.Println("🔄 Starting Signal broadcast session...")
 
 	conn, identifierJSON := a.create_connection(roomId)
 
 
 	// Subscribe to the SignalChannel using the WebSocket connection
 	if err := a.subscribeToChannel(conn, identifierJSON); err != nil {
-		log.Fatalf("❌ Subscription failed: %v", err)
+		log.Fatalf("Subscription failed: %v", err)
 	}
 
-	log.Println("✅ Subscribed to SignalChannel")
+	log.Println("Subscribed to Channel")
 
 	var (
 		account       string
@@ -413,10 +411,10 @@ func (a *Api) connectToWebSocket(roomID string) (*websocket.Conn, []byte, error)
 
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("❌ WebSocket connection failed: %v", err)
+		return nil, nil, fmt.Errorf("WebSocket connection failed: %v", err)
 	}
 
-	log.Println("🔌 WebSocket connection established")
+	log.Println("WebSocket connection established")
 
 	identifier := map[string]interface{}{
 		"channel": "SignalChannel",
@@ -425,7 +423,7 @@ func (a *Api) connectToWebSocket(roomID string) (*websocket.Conn, []byte, error)
 
 	identifierJSON, err := json.Marshal(identifier)
 	if err != nil {
-		return nil, nil, fmt.Errorf("❌ Failed to encode identifier JSON: %v", err)
+		return nil, nil, fmt.Errorf("Failed to convert JSON: %v", err)
 	}
 
 	return conn, identifierJSON, nil
@@ -452,7 +450,6 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte, numbe
 	// Fetch list of Signal accounts from the client
 	accounts, err := a.signalClient.GetAccounts()
 	if err != nil || len(accounts) == 0 {
-		log.Printf("🔁 No accounts yet: %v", err)
 		return ""
 	}
 
@@ -476,9 +473,9 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte, numbe
 	// Send the encrypted message over the WebSocket
 	err = a.sendEncryptedMessage(conn, identifierJSON, payload)
 	if err != nil {
-		log.Printf("⚠️ Failed to send encrypted auth message: %v", err)
+		log.Printf("Failed to send auth message: %v", err)
 	} else {
-		log.Println("✅ Encrypted Signal auth completed")
+		log.Println("Signal auth completed")
 	}
 
 	return account
@@ -490,7 +487,7 @@ func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCom
 	// Read the next message from the WebSocket connection
 	_, message, err := conn.ReadMessage()
 	if err != nil {
-		log.Printf("❌ WebSocket read error: %v", err)
+		log.Printf("WebSocket read error: %v", err)
 		*connectionBreak = true
 		return
 	}
@@ -498,14 +495,13 @@ func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCom
 	// Decode the raw JSON message into a map
 	var incoming map[string]interface{}
 	if err := json.Unmarshal(message, &incoming); err != nil {
-		log.Printf("⚠️ Invalid message format: %v", err)
+		log.Printf("Invalid message format: %v", err)
 		return
 	}
 
 	// Extract the "message" field
 	msgData, ok := incoming["message"].(map[string]interface{})
 	if !ok {
-		log.Println("⚠️ 'message' key missing or not a valid object")
 		return
 	}
 
@@ -515,7 +511,7 @@ func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCom
 	appPubKeyStr, ok3 := msgData["app_public_key"].(string)
 
 	if ok1 && ok2 && ok3 {
-		log.Println("🔐 Encrypted message detected, attempting decryption...")
+		log.Println("Message Received ***")
 
 		encryptedPayload := utils.EncryptedPayload{
 			Ciphertext:      ciphertextStr,
@@ -525,7 +521,7 @@ func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCom
 
 		decryptedMessage, err := utils.DecryptMessage(encryptedPayload, app_config.PrivateKey, app_config.AppPubKey)
 		if err != nil {
-			log.Printf("❌ Decryption failed: %v", err)
+			log.Printf("Decryption failed: %v", err)
 			return
 		}
 
@@ -535,7 +531,6 @@ func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCom
 	// Process only if "type" exists
 	_, ok = msgData["type"].(string)
 	if !ok {
-		log.Printf("⚠️ 'type' key missing or not a string: %#v", msgData["type"])
 		return
 	}
 
@@ -582,7 +577,7 @@ func (a *Api) processMessageByType(
 		// Now call SendMessage with the correct types
 		a.SendMessage(account, phoneNumber, message)
 	default:
-		log.Printf("ℹ️ Unhandled message type: %s", msgType)
+		log.Printf("Unhandled message")
 	}
 }
 
@@ -641,18 +636,18 @@ func (a *Api) sendContactsToWebhook(account, jobID string) {
 	// Fetch contacts from Signal client
 	contacts, err := a.signalClient.ListContacts(account)
 	if err != nil {
-		log.Printf("⚠️ Failed to fetch contacts: %v", err)
+		log.Printf("Failed to fetch contacts: %v", err)
 		return
 	}
 
 	webhookURL := app_config.WebhookURL
 	if webhookURL == "" {
-		log.Println("❌ WEBHOOK_URL environment variable not set")
+		log.Println("WEBHOOK_URL environment variable not set")
 		return
 	}
 
 	total := len(contacts)
-	log.Printf("📤 Sending %d contacts in batches of %d...", total, batchSize)
+	log.Printf("Sending contacts.")
 
 	go func() {
 		for i := 0; i < total; i += batchSize {
@@ -673,7 +668,7 @@ func (a *Api) sendContactsToWebhook(account, jobID string) {
 			// Step 2: Encrypt the payload
 			encryptedDetail, err := utils.EncryptMessage(payload, app_config.PrivateKey, app_config.PublicKey, app_config.AppPubKey)
 			if err != nil {
-				log.Printf("🔐 Encryption failed for batch %d: %v", i/batchSize+1, err)
+				log.Printf("Encryption failed for batch: %v", err)
 				continue
 			}
 
@@ -686,28 +681,23 @@ func (a *Api) sendContactsToWebhook(account, jobID string) {
 
 			finalPayload, err := json.Marshal(encryptedPayload)
 			if err != nil {
-				log.Printf("❌ Failed to marshal encrypted payload for batch %d: %v", i/batchSize+1, err)
+				log.Printf("Failed to marshal encrypted payload for batch %d: %v", i/batchSize+1, err)
 				continue
 			}
 
 			// Step 4: POST encrypted data to webhook
 			resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(finalPayload))
 			if err != nil {
-				log.Printf("❌ Error sending batch %d: %v", i/batchSize+1, err)
+				log.Printf("Error sending batch %d: %v", i/batchSize+1, err)
 			} else {
 				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
-				log.Printf("✅ Sent encrypted batch %d/%d, response: %s",
-					i/batchSize+1,
-					(total+batchSize-1)/batchSize,
-					string(body),
-				)
 			}
 
 			time.Sleep(delayBetweenBatches)
 		}
 
-		log.Println("✅ All contact batches sent securely.")
+		log.Println("All contact batches sent.")
 	}()
 }
 
@@ -739,7 +729,6 @@ func (a *Api) setMessageReciever(primaryNumber string, roomId string, conn *webs
 
 			// Forward received message to handler
 			if len(jsonStr) > 0 {
-				println("Received message:", jsonStr)
 				a.sendMessagesToWebhook(jsonStr, number, roomId)
 			}
 		}
@@ -817,7 +806,7 @@ func (a *Api) sendMessageToWebhook(sentMessage interface{}) {
 	// Step 2: Encrypt the JSON string using your encryption util
 	encryptedDetail, err := utils.EncryptMessage(sentMessage, app_config.PrivateKey, app_config.PublicKey, app_config.AppPubKey)
 	if err != nil {
-		log.Printf("🔐 Encryption failed: %v", err)
+		log.Printf("Encryption failed: %v", err)
 		return
 	}
 
@@ -831,19 +820,19 @@ func (a *Api) sendMessageToWebhook(sentMessage interface{}) {
 	// Step 4: Marshal the encrypted payload into JSON
 	finalPayload, err := json.Marshal(encryptedPayload)
 	if err != nil {
-		log.Printf("❌ Failed to marshal encrypted payload: %v", err)
+		log.Printf("Failed to marshal encrypted payload: %v", err)
 		return
 	}
 
 	// Step 5: Send the encrypted payload to the webhook
 	resp, err := http.Post(webhookURL, "application/json", bytes.NewBuffer(finalPayload))
 	if err != nil {
-		log.Printf("❌ Failed to send message to webhook: %v\n", err)
+		log.Printf("Failed to send message to webhook: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 
-	log.Println("✅ Encrypted message successfully sent to webhook")
+	log.Println("Message sent to webhook")
 }
 
 // sendQRCode generates a Signal QR code and sends it to the client via WebSocket.
@@ -855,7 +844,7 @@ func (a *Api) sendQRCode(conn *websocket.Conn, identifierJSON []byte) {
 	deviceName := fmt.Sprintf("%s %s", baseName, timestamp)
 	pngData, err := a.signalClient.GetQrCodeLink(deviceName, 10)
 	if err != nil {
-		log.Printf("⚠️ Could not generate QR code: %v", err)
+		log.Printf("Could not generate QR code: %v", err)
 		return
 	}
 
@@ -868,9 +857,9 @@ func (a *Api) sendQRCode(conn *websocket.Conn, identifierJSON []byte) {
 
 	err = a.sendEncryptedMessage(conn, identifierJSON, payload)
 	if err != nil {
-		log.Printf("❌ Failed to send QR code message: %v", err)
+		log.Printf("Failed to send QR code message: %v", err)
 	} else {
-		log.Println("✅ Sent QR code to client")
+		log.Println("Sent QR code to client")
 	}
 }
 
@@ -878,7 +867,7 @@ func (a *Api) sendEncryptedMessage(conn *websocket.Conn, identifierJSON []byte, 
 	app_config := config.LoadConfig()
 	encryptedDetail, err := utils.EncryptMessage(payload, app_config.PrivateKey, app_config.PublicKey, app_config.AppPubKey)
 	if err != nil {
-		log.Printf("🔐 Encryption failed: %v", err)
+		log.Printf("Encryption failed: %v", err)
 		return err
 	}
 
