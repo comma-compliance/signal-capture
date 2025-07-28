@@ -276,7 +276,6 @@ func (a *Api) create_connection(roomId string) (*websocket.Conn, []byte) {
 // subscribes to the channel, handles QR code authentication,
 // and continuously processes messages or resends QR codes if needed.
 func (a *Api) StartBroadcasting(roomId string) {
-	emptyJsonFile()
 	log.Println("🔄 Starting Signal broadcast session...")
 
 	conn, identifierJSON := a.create_connection(roomId)
