@@ -11,7 +11,7 @@ Signal was built to protect your privacy, and we respect that. This capture tool
 
 - **Does not interfere** with Signal’s core infrastructure, encryption, or protocols.
 - **Does not weaken or bypass** end-to-end encryption.
-- Only works if the device owner gives permission
+- Only works if the device owner gives permission.
 - Operates **entirely outside of the Signal app** and ecosystem.
 
 We are not affiliated with Signal and do not represent this tool as an official extension of the Signal platform.  
@@ -49,28 +49,28 @@ We believe users should have agency over their data without compromising privacy
 
 # Signal Connector
 
-> **Secure, enterprise grade Signal client built for scalable messaging infrastructure**
+> **Secure, enterprise-grade Signal client built for scalable messaging infrastructure**
 
 A containerized Signal client powered by signal-cli, designed for enterprise backends with secure message streaming, webhook integration, and per-user deployment capabilities.
 
 ## Key Features
 
-- User specific Docker containers with complete isolation
-- Real time encrypted messages streamig
-- Scalable batch processing
+- User-specific Docker containers with complete isolation.
+- Real-time encrypted message streaming.
+- Supports scalable batch processing.
 
 ---
 
 ## Quick Start
 
 
-Start a container
+Start a container:
 
 ```bash
 $ docker compose up --build
 ```
 ### Configurations
-Please setup docker environment variables
+Please set up docker environment variables
 
 ```env
 JOB_ID=unique-session-identifier
@@ -95,47 +95,59 @@ The Swagger API documentation can be found [here](https://bbernhard.github.io/si
 
 ## Architecture Diagram
 
+
 ```
-                                          ┌─────────────────────────────────────────────┐
-                                          │               CI/CD Pipeline                │
-                                          │               GitHub Actions                │
-                                          └───────────────────┬─────────────────────────┘
-                                                              │ Auto Deploy
-                                                              ▼
-                                         ┌─────────────────────────────────────────────┐
-                                         │             Docker Container (Go)           │
-                                         │  ┌─────────────────────────────────────┐    │
-                                         │  │         signal-cli                  │    │
-                                         │  │    (Signal Protocol API)            │    │
-                                         │  └─────────────────────────────────────┘    │
-┌─────────────────┐                      │  ┌─────────────────────────────────────┐    │
-│      Signal     │◄────────────────────►│  │         Crypto Layer                │    │
-│   Mobile App    │     Device Link      │  │  Signal Protocol + Double Ratchet   │    │
-└─────────────────┘                      │  │  XChaCha20 + Ed25519 + Curve25519   │    │
-         ▲                               │  └─────────────────────────────────────┘    │
-         │                               └──────────────────┬──────────────────────────┘
+                                       ┌─────────────────────────────────────────────┐
+                                       │               CI/CD Pipeline                │
+                                       │               GitHub Actions                │
+                                       └────────────────────┬────────────────────────┘
+                                                            │ Auto Deploy
+                                                            ▼
+                                        ┌──────────────────────────────────────────────┐
+                                        │             Docker Container (Go)            │
+                                        │  ┌──────────────────────────────────────┐    │
+                                        │  │          signal-cli                  │    │
+                                        │  │     (Signal Protocol API)            │    │
+                                        │  └──────────────────────────────────────┘    │
+┌─────────────────┐                     │  ┌──────────────────────────────────────┐    │
+│     Signal      │                     │  │           Your Crypto Layer          │    │
+│   Mobile App    │◄───────────────────►│  │   XChaCha20 + Ed25519 + Curve25519   │    │
+└─────────────────┘                     │  │     (Additional Encryption)          │    │
+         ▲                              │  └──────────────────────────────────────┘    │
+         │                              └───────────────────┬──────────────────────────┘
          │ Messages                                         │
-            ▼                                 ┌─────────────┼─────────────┐
-                                              │             │             │
-                                              ▼             ▼             ▼
-                                  ┌──────────────────┐  ┌──────────────────┐
-                                  │  WebSocket       │  │    Webhook       │
-                                  │  Real-time       │  │   HTTP POST      │
-                                  │  Streaming       │  │   Delivery       │
-                                  └─────────┬────────┘  └─────────┬────────┘
-                                            │                     │
-                                            └─────────┬───────────┘
+         ▼                                ┌─────────────────┼────────────────────────┐
+                                          │                 │                        │
+                                          ▼                 ▼                        ▼
+                               ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+                               │     WebSocket    │    │     Webhook      │    │      Local       │
+                               │     Real-time    │    │     HTTP POST    │    │   Storage        │
+                               │     Streaming    │    │     Delivery     │    │   & Sessions     │
+                               └─────────┬────────┘    └─────────┬────────┘    └──────────────────┘
+                                         │                       │
+                                         └───────────┬───────────┘
+                                                     │
+                                                     ▼
+                                           ┌─────────────────────┐
+                                           │     Your App        │
+                                           │     Backend         │
+                                           │                     │
+                                           │ • Message Processing│
+                                           │ • Business Logic    │
+                                           │ • User Management   │
+                                           │ • Contact Sync      │
+                                           └─────────────────────┘
                                                       │
                                                       ▼
-                                            ┌─────────────────────┐
-                                            │   Your App          │
-                                            │   Backend           │
-                                            │                     │
-                                            │ • Message Processing│
-                                            │ • Business Logic    │
-                                            │ • User Management   │
-                                            │ • Contact Sync      │
-                                            └─────────────────────┘
+                                             ┌─────────────────────┐
+                                             │      Your App       │
+                                             │      Backend        │
+                                             │                     │
+                                             │ • Message Processing│
+                                             │ • Business Logic    │
+                                             │ • User Management   │
+                                             │ • Contact Sync      │
+                                             └─────────────────────┘
 
 ```
 The connector operates as a secure bridge between Signal CLI and your enterprise infrastructure, ensuring message delivery through multiple channels with full encryption support.
@@ -143,20 +155,20 @@ The connector operates as a secure bridge between Signal CLI and your enterprise
 ---
 ## Security & Compliance
 
-**Cryptography**: Built with modern NaCl/libsodium encryption standards
-- **Encryption**: XChaCha20 symmetric encryption
-- **Key Exchange**: Curve25519 elliptic curve
-- **Signatures**: Ed25519 digital signatures
+**Cryptography**: Built with modern NaCl/libsodium encryption standards.
+- **Encryption**: XChaCha20 symmetric encryption.
+- **Key Exchange**: Curve25519 elliptic curve.
+- **Signatures**: Ed25519 digital signatures.
 
 ## Roadmap
-**FIPS Compliance**: A --fips flag is coming soon for FIPS supported encryption protocols but our current crypto stack is already safer. Unlike FIPS, we use modern, misuse-resistant algorithms like XChaCha20 and Ed25519 that offer better real-world security.
+**FIPS Compliance**: A --fips flag is coming soon for FIPS supported encryption protocols but our current crypto stack is already safer. Unlike FIPS, we use modern, misuse-resistant algorithms, such as XChaCha20 and Ed25519 that offer better real-world security.
 
 ---
 
 ## Deployment
 
 ### CI/CD Pipeline
-Automated builds are triggered on changes to `signal-client/` directory:
+Automated builds are triggered by changes in the `signal-client/` directory:
 - **Workflow**: `.github/workflows/ci-signal-client.yml`
 - **Registry**: GitHub Container Registry (GHCR)
 
@@ -171,12 +183,12 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 We take security seriously. If you discover a security vulnerability, please:
 
-1. **Do not** open a public issue
-2. **Email** us at security@commacompliance.com
-3. **Include** detailed steps to reproduce
-4. **Wait** for our response before public disclosure
+1. **Do not** open a public issue.
+2. **Email** us at security@commacompliance.com.
+3. **Include** detailed steps to reproduce.
+4. **Wait** for our response before public disclosure.
 
-**Bug Bounty Program:** Coming soon report vulnerabilities responsibly and earn rewards. Minimum bounty: $25 for valid submissions.
+**Bug Bounty Program:** Coming soon, report vulnerabilities responsibly and earn rewards. The minimum bounty is $25 for valid submissions.
 
 ---
 
