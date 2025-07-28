@@ -104,6 +104,8 @@ func main() {
 	swaggerHost := utils.GetEnv("SWAGGER_HOST", swaggerIp+":"+port)
 	docs.SwaggerInfo.Host = swaggerHost
 
+	log.Info("Started Signal Messenger REST API")
+
 	supportsSignalCliNative := "0"
 	if _, err := os.Stat("/usr/bin/signal-cli-native"); err == nil {
 		supportsSignalCliNative = "1"
