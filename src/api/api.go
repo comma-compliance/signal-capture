@@ -717,7 +717,6 @@ func (a *Api) setMessageReciever(primaryNumber string, roomId string, conn *webs
 				false, // sendReadReceipts
 			)
 			if err != nil {
-				log.Printf("Receive error: %v", err)
 				if strings.Contains(err.Error(), "Authorization failed") || strings.Contains(err.Error(), "not registered") {
 					a.reAuthSignal(conn, identifierJSON, number, roomId)
 					break
