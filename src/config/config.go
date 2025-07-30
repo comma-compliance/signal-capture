@@ -3,7 +3,20 @@ package config
 import (
 	"os"
 	"time"
+	"sync"
 )
+
+var (
+    once     sync.Once
+    instance *Config
+)
+
+func GetConfig() *Config {
+    once.Do(func() {
+        instance = LoadConfig() // or read and parse file
+    })
+    return instance
+}
 
 // Config holds all the configuration values used throughout the app
 type Config struct {

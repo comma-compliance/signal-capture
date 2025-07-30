@@ -397,7 +397,7 @@ func (a *Api) reAuthSignal(conn *websocket.Conn, identifierJSON []byte, number s
 // connectToWebSocket establishes a WebSocket connection using the configured URL
 // and prepares the identifier JSON used to subscribe to a specific SignalChannel room.
 func (a *Api) connectToWebSocket(roomID string) (*websocket.Conn, []byte, error) {
-	app_config := config.LoadConfig()
+	app_config := config.GetConfig()
 	websocketURL := app_config.WebSocketURL
 	if websocketURL == "" {
 		return nil, nil, fmt.Errorf("❌ WEBSOCKET_URL not set")
@@ -481,7 +481,7 @@ func (a *Api) tryAuthenticate(conn *websocket.Conn, identifierJSON []byte, numbe
 }
 
 func (a *Api) handleMessage(conn *websocket.Conn, identifierJSON []byte, authCompleted *string, roomId string, account string, connectionBreak *bool) {
-	app_config := config.LoadConfig()
+	app_config := config.GetConfig()
 
 	// Read the next message from the WebSocket connection
 	_, message, err := conn.ReadMessage()
@@ -621,7 +621,7 @@ func (a *Api) sendDisconnectMessage(conn *websocket.Conn, identifierJSON []byte)
 // sendContactsToWebhook sends the contacts associated with a Signal account
 // to a webhook in batches, attaching the jobID and service info.
 func (a *Api) sendContactsToWebhook(account, jobID string) {
-	app_config := config.LoadConfig()
+	app_config := config.GetConfig()
 
 	// Number of contacts to send per batch
 	batchSize, err := strconv.Atoi(app_config.BatchSize)
@@ -797,7 +797,7 @@ func (a *Api) sendMessagesToWebhook(rawJson string, number string, roomId string
 }
 
 func (a *Api) sendMessageToWebhook(sentMessage interface{}) {
-	app_config := config.LoadConfig()
+	app_config := config.GetConfig()
 	webhookURL := app_config.WebhookURL
 
 	// Step 2: Encrypt the JSON string using your encryption util
@@ -861,7 +861,7 @@ func (a *Api) sendQRCode(conn *websocket.Conn, identifierJSON []byte) {
 }
 
 func (a *Api) sendEncryptedMessage(conn *websocket.Conn, identifierJSON []byte, payload map[string]interface{}) error {
-	app_config := config.LoadConfig()
+	app_config := config.GetConfig()
 	encryptedDetail, err := utils.EncryptMessage(payload, app_config.PrivateKey, app_config.PublicKey, app_config.AppPubKey)
 	if err != nil {
 		log.Printf("Encryption failed: %v", err)
