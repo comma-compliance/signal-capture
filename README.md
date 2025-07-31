@@ -1,8 +1,8 @@
 # Signal Capture
 
-> **Secure, enterprise-grade Signal client built for scalable messaging infrastructure**
+> **Secure, enterprise-grade Signal client built for scalable messaging infrastructure.**
 
-A containerized Signal client powered by signal-cli, designed for enterprise backends with secure message streaming, webhook integration, and per-user deployment capabilities.  
+A containerized Signal client powered by signal-cli-rest-api, designed for enterprise backends with secure message streaming, webhook integration, and per-user deployment capabilities.  
 
 # Comma Compliance Signal Capture Policy Statement / Use Policy
 
@@ -74,7 +74,7 @@ $ docker compose up --build
 
 ## Configurations
 
-Please set up docker environment variables
+Please set up docker environment variables.
 
 ```env
 JOB_ID=unique-session-identifier
@@ -153,14 +153,14 @@ The Swagger API documentation can be found here. If you prefer a simple text fil
                                              └─────────────────────┘
 ```
 
-The capture operates as a secure bridge between Signal CLI and your enterprise infrastructure, ensuring message delivery through multiple channels with full encryption support.
+This capture tool operates as a secure bridge between Signal CLI and your enterprise infrastructure, ensuring message delivery through multiple channels with full encryption support.
 
-## Security & Compliance
+## Security & Bug Bounty
 
-**Cryptography**: Built with modern NaCl/libsodium encryption standards.
-- **Encryption**: XChaCha20 symmetric encryption.
-- **Key Exchange**: Curve25519 elliptic curve.
-- **Signatures**: Ed25519 digital signatures.
+For vulnerability disclosure, secure development practices, see our [Security Policy](./SECURITY.md).  
+
+**Bug Bounty Program**: Coming soon, report vulnerabilities responsibly and earn rewards. The minimum bounty is $25 for valid submissions.
+
 
 ## Roadmap
 
@@ -175,18 +175,7 @@ Automated builds are triggered by changes in the `signal-client/` directory:
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-## Security & Bug Bounty
-
-We take security seriously. If you discover a security vulnerability, please:
-
-1. **Do not** open a public issue.
-2. **Email** us at security@commacompliance.com.
-3. **Include** detailed steps to reproduce.
-4. **Wait** for our response before public disclosure.
-
-**Bug Bounty Program**: Coming soon, report vulnerabilities responsibly and earn rewards. The minimum bounty is $25 for valid submissions.
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.  
 
 ## Support
 
