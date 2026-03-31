@@ -1,13 +1,13 @@
-ARG SIGNAL_CLI_VERSION=0.13.15
-ARG LIBSIGNAL_CLIENT_VERSION=0.70.0
-ARG SIGNAL_CLI_NATIVE_PACKAGE_VERSION=0.13.15+morph027+3
+ARG SIGNAL_CLI_VERSION=0.14.1
+ARG LIBSIGNAL_CLIENT_VERSION=0.87.4
+ARG SIGNAL_CLI_NATIVE_PACKAGE_VERSION=0.14.1+morph027+2
 
 ARG SWAG_VERSION=1.16.4
-ARG GRAALVM_VERSION=21.0.0
+ARG GRAALVM_VERSION=25.0.2
 
 ARG BUILD_VERSION_ARG=unset
 
-FROM golang:1.24-bookworm AS buildcontainer
+FROM golang:1.26-trixie AS buildcontainer
 
 ARG SIGNAL_CLI_VERSION
 ARG LIBSIGNAL_CLIENT_VERSION
@@ -31,8 +31,8 @@ RUN arch="$(uname -m)"; \
 RUN dpkg-reconfigure debconf --frontend=noninteractive \
 	&& apt-get update \
 	&& apt-get -y install --no-install-recommends \
-		wget software-properties-common git locales zip unzip \
-		file build-essential libz-dev zlib1g-dev \
+		wget git locales zip unzip \
+		file build-essential libz-dev zlib1g-dev binutils \
 	&& rm -rf /var/lib/apt/lists/* 
 
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && \
@@ -78,16 +78,17 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then \
 		&& export GRAALVM_HOME=/tmp/graalvm \
 		&& export PATH=/tmp/graalvm/bin:$PATH \
 		&& cd /tmp/signal-cli-${SIGNAL_CLI_VERSION}-source \
-		&& sed -i 's/Signal-Android\/5.22.3/Signal-Android\/5.51.7/g' src/main/java/org/asamk/signal/BaseConfig.java \
-		&& ./gradlew build \
-		&& ./gradlew installDist \
-		&& ls build/install/signal-cli/lib/libsignal-client-${LIBSIGNAL_CLIENT_VERSION}.jar || (echo "\n\nsignal-client jar file with version ${LIBSIGNAL_CLIENT_VERSION} not found. Maybe the version needs to be bumped in the signal-cli-rest-api Dockerfile?\n\n" && echo "Available version: \n" && ls build/install/signal-cli/lib/libsignal-client-* && echo "\n\n" && exit 1) \
+		&& sed -i 's/Signal-Android\/8.1.2/Signal-Android\/5.51.7/g' src/main/java/org/asamk/signal/BaseConfig.java \
+		&& ls /tmp/signal-cli-${SIGNAL_CLI_VERSION}/lib/libsignal-client-${LIBSIGNAL_CLIENT_VERSION}.jar || (echo "\n\nsignal-cli tarball does not contain libsignal-client-${LIBSIGNAL_CLIENT_VERSION}.jar\n\nAvailable versions:\n" && ls /tmp/signal-cli-${SIGNAL_CLI_VERSION}/lib/libsignal-client-* && echo "\n" && exit 1) \
+		&& cp /tmp/signal-cli-${SIGNAL_CLI_VERSION}/lib/libsignal-client-${LIBSIGNAL_CLIENT_VERSION}.jar /tmp/libsignal-client.jar \
+		&& git apply /tmp/signal-cli-native.patch \
+		&& ./gradlew -Plibsignal_client_path=/tmp/libsignal-client.jar build \
+		&& ./gradlew -Plibsignal_client_path=/tmp/libsignal-client.jar installDist \
 		&& cd /tmp \
-		&& cp signal-cli-${SIGNAL_CLI_VERSION}-source/build/install/signal-cli/lib/libsignal-client-${LIBSIGNAL_CLIENT_VERSION}.jar libsignal-client.jar \
 		&& zip -qu libsignal-client.jar libsignal_jni.so \
 		&& cd /tmp/signal-cli-${SIGNAL_CLI_VERSION}-source \
-		&& git apply /tmp/signal-cli-native.patch \
-		&& ./gradlew -q nativeCompile; \
+		&& awk '/buildArgs.add\("--enable-native-access=ALL-UNNAMED"\)/{print; print "            buildArgs.add(\"-H:NumberOfThreads=2\")"; next}1' build.gradle.kts > build.gradle.kts.tmp && mv build.gradle.kts.tmp build.gradle.kts \
+		&& GRADLE_OPTS="-Xmx1536m" ./gradlew -q --no-daemon -Plibsignal_client_path=/tmp/libsignal-client.jar nativeCompile; \
 	elif [ "$(uname -m)" = "aarch64" ] ; then \
 		echo "Use native image from @morph027 (https://packaging.gitlab.io/signal-cli/) for arm64 - many thanks to @morph027" \
 		&& curl -fsSL https://packaging.gitlab.io/signal-cli/gpg.key | apt-key add - \
@@ -119,7 +120,7 @@ RUN ls /tmp/signal-cli-${SIGNAL_CLI_VERSION}/lib/libsignal-client-${LIBSIGNAL_CL
 # workaround until upstream is fixed
 RUN cd /tmp/signal-cli-${SIGNAL_CLI_VERSION}/lib \
 	&& unzip signal-cli-${SIGNAL_CLI_VERSION}.jar \
-	&& sed -i 's/Signal-Android\/5.22.3/Signal-Android\/5.51.7/g' org/asamk/signal/BaseConfig.class \
+	&& sed -i 's/Signal-Android\/8.1.2/Signal-Android\/5.51.7/g' org/asamk/signal/BaseConfig.class \
 	&& zip -r signal-cli-${SIGNAL_CLI_VERSION}.jar org/ META-INF/ \
 	&& rm -rf META-INF \
 	&& rm -rf org
@@ -159,7 +160,7 @@ RUN cd /tmp/signal-cli-rest-api-src && go build -buildmode=plugin -o signal-cli-
 # is fixed we use the standard ubuntu image
 #FROM eclipse-temurin:21-jre-jammy
 
-FROM ubuntu:jammy
+FROM ubuntu:noble
 
 ENV GIN_MODE=release
 
@@ -173,7 +174,7 @@ ENV SIGNAL_CLI_REST_API_PLUGIN_SHARED_OBJ_DIR=/usr/bin/
 
 RUN dpkg-reconfigure debconf --frontend=noninteractive \
 	&& apt-get update \
-	&& apt-get install -y --no-install-recommends util-linux supervisor netcat openjdk-21-jre curl locales \
+	&& apt-get install -y --no-install-recommends util-linux supervisor netcat-openbsd openjdk-25-jre curl locales \
 	&& rm -rf /var/lib/apt/lists/* 
 
 COPY --from=buildcontainer /tmp/signal-cli-rest-api-src/signal-cli-rest-api /usr/bin/signal-cli-rest-api
@@ -184,8 +185,8 @@ COPY --from=buildcontainer /tmp/signal-cli-rest-api-src/signal-cli-rest-api_plug
 COPY entrypoint.sh /entrypoint.sh
 
 
-RUN groupadd -g 1000 signal-api \
-	&& useradd --no-log-init -M -d /home -s /bin/bash -u 1000 -g 1000 signal-api \
+RUN if getent group 1000 >/dev/null; then groupmod -n signal-api "$(getent group 1000 | cut -d: -f1)"; else groupadd -g 1000 signal-api; fi \
+	&& if id -u 1000 >/dev/null 2>&1; then usermod -l signal-api -d /home -s /bin/bash -g 1000 "$(getent passwd 1000 | cut -d: -f1)"; else useradd --no-log-init -M -d /home -s /bin/bash -u 1000 -g 1000 signal-api; fi \
 	&& ln -s /opt/signal-cli-${SIGNAL_CLI_VERSION}/bin/signal-cli /usr/bin/signal-cli \
 	&& ln -s /opt/signal-cli-${SIGNAL_CLI_VERSION}/bin/signal-cli-native /usr/bin/signal-cli-native \
 	&& mkdir -p /signal-cli-config/ \
