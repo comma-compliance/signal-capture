@@ -1501,7 +1501,9 @@ func (s *SignalClient) UpdateProfile(number string, profileName string, base64Av
 			return err
 		}
 
-		avatarTmpPath = s.avatarTmpDir + u.String() + "." + fType.Extension
+		// Filename is a generated UUID plus a detected extension, joined under the
+		// internal avatar tmp dir; no caller-controlled component reaches the path.
+		avatarTmpPath = filepath.Join(s.avatarTmpDir, u.String()+"."+fType.Extension)
 
 		f, err := os.Create(avatarTmpPath)
 		if err != nil {
@@ -1719,7 +1721,9 @@ func (s *SignalClient) UpdateGroup(number string, groupId string, base64Avatar *
 			return err
 		}
 
-		avatarTmpPath = s.avatarTmpDir + u.String() + "." + fType.Extension
+		// Filename is a generated UUID plus a detected extension, joined under the
+		// internal avatar tmp dir; no caller-controlled component reaches the path.
+		avatarTmpPath = filepath.Join(s.avatarTmpDir, u.String()+"."+fType.Extension)
 
 		f, err := os.Create(avatarTmpPath)
 		if err != nil {

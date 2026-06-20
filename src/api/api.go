@@ -243,7 +243,7 @@ func emptyJsonFile() {
 	}
 
 	// Write the JSON data to the accounts.json file
-	err = os.WriteFile(accountsPath, jsonData, 0644)
+	err = os.WriteFile(accountsPath, jsonData, 0600)
 	if err != nil {
 		fmt.Println("Error writing to accounts.json:", err)
 		return

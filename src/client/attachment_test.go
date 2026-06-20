@@ -3,6 +3,7 @@ package client
 import (
 	"flag"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -101,6 +102,48 @@ func Test_Attachment_ExtractMetadata_ShouldPrepareDataFor_toDataForSignal(t *tes
 			if info != nil && !os.IsNotExist(err) && tt.base64Valid {
 				t.Error("dir exists after cleanUp")
 				return
+			}
+		})
+	}
+}
+
+// A caller-supplied filename= field with path-traversal sequences must not let
+// the resolved file path escape the per-attachment temporary directory. The
+// store itself may legitimately fail when a confined name points at a
+// non-existent subdir; what must never happen is a write outside the directory.
+func Test_Attachment_StoreBase64_ConfinesTraversalFilename(t *testing.T) {
+	tmpDir := t.TempDir() + string(os.PathSeparator)
+
+	// A sentinel that, without confinement, a "../" filename would land on.
+	escapeTarget := filepath.Join(t.TempDir(), "signal-capture-escape.txt")
+
+	traversalNames := []string{
+		"../../../../" + strings.TrimPrefix(escapeTarget, string(os.PathSeparator)),
+		"../" + filepath.Base(escapeTarget),
+		"/etc/signal-capture-escape.txt",
+	}
+
+	for _, name := range traversalNames {
+		t.Run(name, func(t *testing.T) {
+			input := "data:text/plain;filename=" + name + ";base64,MTIzNDU="
+			attachmentEntry := NewAttachmentEntry(input, tmpDir)
+
+			storeErr := attachmentEntry.storeBase64AsTemporaryFile()
+			defer attachmentEntry.cleanUp()
+
+			perAttachmentDir := tmpDir + attachmentEntry.DirName
+			rel, err := filepath.Rel(perAttachmentDir, attachmentEntry.FilePath)
+			if err != nil {
+				t.Fatalf("filepath.Rel error: %v", err)
+			}
+			if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+				t.Errorf("FilePath %q escaped per-attachment dir %q (rel %q)", attachmentEntry.FilePath, perAttachmentDir, rel)
+			}
+
+			// Whether the store succeeded or failed, nothing may have been written
+			// at the location the traversal was aiming for.
+			if _, err := os.Stat(escapeTarget); err == nil {
+				t.Errorf("traversal filename %q wrote outside the attachment dir (store err: %v)", name, storeErr)
 			}
 		})
 	}

@@ -53,6 +53,11 @@ func main() {
 
 	uid := utils.GetEnv("SIGNAL_CLI_UID", "1000")
 	gid := utils.GetEnv("SIGNAL_CLI_GID", "1000")
+	// uid/gid are env-derived; require plain numeric ids so they cannot be
+	// interpreted as flags or alternate owner specs by chown.
+	if !isNumericId(uid) || !isNumericId(gid) {
+		log.Fatal("SIGNAL_CLI_UID/SIGNAL_CLI_GID must be numeric, got uid=", uid, " gid=", gid)
+	}
 	_, err = exec.Command("chown", uid+":"+gid, fifoPathname).Output()
 	if err != nil {
 		log.Fatal("Couldn't change permissions of fifo with name ", fifoPathname, ": ", err.Error())
@@ -75,7 +80,7 @@ func main() {
 		tcpPort, fifoPathname, signalCliConfigDir, fifoPathname, supervisorctlProgramName, supervisorctlProgramName)
 	
 
-	err = ioutil.WriteFile(supervisorctlConfigFilename, []byte(supervisorctlConfig), 0644)
+	err = ioutil.WriteFile(supervisorctlConfigFilename, []byte(supervisorctlConfig), 0600)
 	if err != nil {
 		log.Fatal("Couldn't write ", supervisorctlConfigFilename, ": ", err.Error())
 	}
@@ -85,4 +90,16 @@ func main() {
 	if err != nil {
 		log.Fatal("Couldn't persist jsonrpc2.yaml: ", err.Error())
 	}
+}
+
+func isNumericId(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

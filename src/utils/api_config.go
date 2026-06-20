@@ -92,5 +92,5 @@ func (c *SignalCliApiConfig) Persist() error {
 		return err
 	}
 
-	return ioutil.WriteFile(c.path, out, 0644)
+	return ioutil.WriteFile(c.path, out, 0600)
 }
