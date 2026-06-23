@@ -77,5 +77,10 @@ func (c *JsonRpc2ClientConfig) Persist(path string) error {
 		return err
 	}
 
+	// This config (jsonrpc2.yml) is written by the jsonrpc2-helper at container
+	// init while running as root, then read back by the REST API process running
+	// as the unprivileged signal-api user. It must stay group/other-readable
+	// (0644) to allow that cross-uid read; it holds only a local tcp port + fifo
+	// path, no secrets. A stricter 0600 would make the API unable to read it.
 	return ioutil.WriteFile(path, out, 0644)
 }
