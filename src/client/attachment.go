@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/gabriel-vasile/mimetype"
 	uuid "github.com/gofrs/uuid"
 )
@@ -90,11 +91,18 @@ func (attachmentEntry *AttachmentEntry) storeBase64AsTemporaryFile() error {
 
 	attachmentEntry.DirName = dirNameUuid.String()
 	dirPath := attachmentEntry.attachmentTmpDir + attachmentEntry.DirName
-	if err := os.Mkdir(dirPath, os.ModePerm); err != nil {
+	if err := os.Mkdir(dirPath, 0750); err != nil {
 		return err
 	}
 
-	attachmentEntry.FilePath = dirPath + string(os.PathSeparator) + attachmentEntry.FileName
+	// FileName may be derived from the inbound data URI's filename= field and is
+	// therefore caller-controlled. Confine it to dirPath so a value like
+	// "../../etc/passwd" cannot escape the per-attachment directory.
+	filePath, err := securejoin.SecureJoin(dirPath, attachmentEntry.FileName)
+	if err != nil {
+		return err
+	}
+	attachmentEntry.FilePath = filePath
 
 	f, err := os.Create(attachmentEntry.FilePath)
 	if err != nil {

@@ -25,7 +25,17 @@ type PluginConfigs struct {
 func (c *PluginConfigs) Load(baseDirectory string) error {
 
 	err := filepath.Walk(baseDirectory, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
 		if info.IsDir() {
+			return nil
+		}
+
+		// Only load regular .def files from the plugin directory; skip symlinks so
+		// a link inside the plugin dir cannot redirect a read outside of it.
+		if info.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
 
