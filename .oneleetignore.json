@@ -22,6 +22,11 @@
       "pathPatterns": ["/src/utils/config.go"],
       "$comment": "False positive: 0600 is correct permission for sensitive config files. TODO: narrow to specific ruleIds once Oneleet SARIF rule identifier for WriteFile permission findings is available.",
       "reason": "False positive. WriteFile uses mode 0600, the correct restrictive permission for config files containing sensitive values. Scanner miscategorisation."
+    },
+    {
+      "pathPatterns": ["/src/scripts/jsonrpc2-helper.go"],
+      "$comment": "False positive: uid/gid validated numeric-only by isNumericId() before use; exec.Command does not invoke a shell. TODO: narrow to specific ruleIds once Oneleet SARIF rule identifier for G204 is available.",
+      "reason": "False positive (G204 subprocess tainted input). uid and gid are read from env vars and validated as numeric-only by isNumericId() before being passed to exec.Command. exec.Command calls the binary directly without a shell — no injection is possible. #nosec G204 annotation is also present in source."
     }
   ]
 }

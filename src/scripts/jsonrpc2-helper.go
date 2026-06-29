@@ -58,7 +58,7 @@ func main() {
 	if !isNumericId(uid) || !isNumericId(gid) {
 		log.Fatal("SIGNAL_CLI_UID/SIGNAL_CLI_GID must be numeric, got uid=", uid, " gid=", gid)
 	}
-	_, err = exec.Command("chown", uid+":"+gid, fifoPathname).Output()
+	_, err = exec.Command("chown", uid+":"+gid, fifoPathname).Output() // #nosec G204 -- uid/gid are validated numeric-only by isNumericId(); fifoPathname is created by this process
 	if err != nil {
 		log.Fatal("Couldn't change permissions of fifo with name ", fifoPathname, ": ", err.Error())
 	}
