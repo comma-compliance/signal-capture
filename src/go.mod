@@ -18,7 +18,7 @@ require (
 	github.com/swaggo/swag v1.16.4
 	github.com/tidwall/sjson v1.2.5
 	github.com/yuin/gopher-lua v1.1.1
-	golang.org/x/crypto v0.53.0
+	golang.org/x/crypto v0.55.0
 	gopkg.in/yaml.v2 v2.4.0
 	layeh.com/gopher-json v0.0.0-20201124131017-552bb3c4c3bf
 	layeh.com/gopher-luar v1.0.11
@@ -53,11 +53,10 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	golang.org/x/arch v0.14.0 // indirect
-	golang.org/x/mod v0.38.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
-	golang.org/x/tools v0.47.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/protobuf v1.36.4 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
