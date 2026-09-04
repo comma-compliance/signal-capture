@@ -1,6 +1,6 @@
 module github.com/bbernhard/signal-cli-rest-api
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/cjoudrey/gluahttp v0.0.0-20201111170219-25003d9adfa9
@@ -18,7 +18,7 @@ require (
 	github.com/swaggo/swag v1.16.4
 	github.com/tidwall/sjson v1.2.5
 	github.com/yuin/gopher-lua v1.1.1
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	gopkg.in/yaml.v2 v2.4.0
 	layeh.com/gopher-json v0.0.0-20201124131017-552bb3c4c3bf
 	layeh.com/gopher-luar v1.0.11
